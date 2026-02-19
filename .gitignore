@@ -1,0 +1,7 @@
+node_modules/
+dist/
+*.tsbuildinfo
+bun.lockb
+.DS_Store
+*.Zone.Identifier
+.opencarly/sessions/

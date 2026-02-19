@@ -1,0 +1,36 @@
+{
+  "thresholds": {
+    "moderate": 15,
+    "depleted": 35,
+    "critical": 50
+  },
+  "brackets": {
+    "fresh": {
+      "enabled": true,
+      "rules": [
+        "Context mode: LEAN - minimal injection overhead",
+        "Trust recent context for implementation details",
+        "Focus on the current task without re-stating prior decisions"
+      ]
+    },
+    "moderate": {
+      "enabled": true,
+      "rules": [
+        "Context mode: STANDARD - reinforcing key context",
+        "Re-state the current goal or task before continuing",
+        "Reference specific file paths when discussing code",
+        "Summarize what has been done so far if changing direction"
+      ]
+    },
+    "depleted": {
+      "enabled": true,
+      "rules": [
+        "Context mode: REINFORCEMENT - heavy injection active",
+        "Summarize progress before continuing with new work",
+        "Be explicit about file paths, function names, and line numbers",
+        "Break remaining work into small, concrete steps",
+        "Consider whether the session should be compacted"
+      ]
+    }
+  }
+}

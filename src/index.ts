@@ -1,77 +1,223 @@
-// .opencode/plugins/opencarly/index.ts
-import fs from 'node:fs/promises';
-import path from 'node:path';
+/**
+ * OpenCarly - Context Augmentation & Reinforcement Layer for OpenCode
+ *
+ * Dynamic rules that load when relevant, disappear when not.
+ * Replicates CARL (https://github.com/ChristopherKahler/carl) for OpenCode.
+ *
+ * Hook flow per user message:
+ * 1. chat.message -> scan prompt for keywords + star-commands, update session
+ * 2. experimental.chat.system.transform -> load rules, format, inject into system prompt
+ */
 
-class OpenCarlyPlugin {
-  name = 'opencarly';
-  version = '0.4.0';
-  manifest: any = null;
-  activeDomains: string[] = [];
-  strictMode = false;
-  briefMode = false;
+import type { Plugin } from "@opencode-ai/plugin";
+import { discoverConfig } from "./config/discovery";
+import { loadConfig, type CarlyConfig } from "./config/manifest";
+import type { SessionConfig } from "./config/schema";
+import { matchDomains, type MatchResult } from "./engine/matcher";
+import { loadRules } from "./engine/loader";
+import { getBracket } from "./engine/brackets";
+import { formatRules } from "./formatter/formatter";
+import {
+  getOrCreateSession,
+  updateSessionActivity,
+  saveSession,
+  applySessionOverrides,
+  cleanStaleSessions,
+} from "./session/session";
 
-  async init(projectRoot: string) {
-    await this.loadManifest(projectRoot);
-  }
+// ---------------------------------------------------------------------------
+// Plugin state (shared between hooks via closure)
+// ---------------------------------------------------------------------------
 
-  private async loadManifest(projectRoot: string) { /* same as v0.3 - unchanged */ }
-  private async exists(p: string) { /* same */ }
-  private async createDefaultStructure(carlyDir: string) { /* updated below */ }
-  private async loadDomainRules(domain: string, root: string): Promise<string> { /* same as v0.3 */ }
-
-  async onPreMessage(event: any) {
-    let prompt = '';
-    const msg = event.message || event;
-    if (typeof msg.content === 'string') prompt = msg.content;
-    else if (Array.isArray(msg.content)) prompt = msg.content.map((c: any) => typeof c === 'string' ? c : '').join(' ');
-
-    const lower = prompt.toLowerCase().trim();
-
-    // Star commands
-    if (lower.includes('*brief')) this.briefMode = true;
-    if (lower.includes('*full')) { this.briefMode = false; this.strictMode = false; }
-    if (lower.includes('*strict') || lower.includes('*diffonly')) this.strictMode = true;
-    if (lower.includes('*carl')) console.log(`[OpenCarly] 📋 Active domains: ${this.activeDomains.join(', ') || 'none'} | Brief: ${this.briefMode} | Strict: ${this.strictMode}`);
-
-    this.activeDomains = [];
-    for (const [domain, data] of Object.entries(this.manifest?.domains || {})) {
-      const triggers = (data as any).triggers || [];
-      if (triggers.some((t: string) => lower.includes(t.toLowerCase()))) {
-        this.activeDomains.push(domain);
-        console.log(`[OpenCarly] 🔥 Activated: ${domain}`);
-      }
-    }
-  }
-
-  async onContextPrime(request: any) {
-    const root = request.projectRoot || process.cwd();
-    let injection = `\n\n=== CARLY EFFICIENCY (ALWAYS) ===\nCode over explanation. Show, don't tell. NEVER repeat unchanged code. Target <250 tokens per reply.`;
-
-    if (this.strictMode) injection += `\n\n=== STRICT DIFF-ONLY MODE ===\nALWAYS respond with unified diff only. No explanations unless *explain. No pleasantries.`;
-    if (this.briefMode) injection += `\n\n=== BRIEF MODE ===\nUltra-concise. One-line answers when possible.`;
-
-    for (const domain of this.activeDomains) {
-      const rules = await this.loadDomainRules(domain, root);
-      if (rules) injection += `\n\n=== CARLY DOMAIN: ${domain.toUpperCase()} ===\n${rules}`;
-    }
-
-    console.log(`[OpenCarly] 📉 Injecting ~${Math.round(injection.length/4)} tokens (efficiency + ${this.activeDomains.length} domains)`);
-    return { context: injection };
-  }
-
-  async onPostMessage(event: any) {
-    const msg = event.message || event;
-    if (msg.role !== 'assistant' || typeof msg.content !== 'string') return;
-
-    const outTokens = Math.round(msg.content.length / 4);
-    console.log(`[OpenCarly] 📊 OUTPUT TOKENS THIS TURN: ~${outTokens} | Strict mode: ${this.strictMode}`);
-
-    // Structural enforcement
-    if (this.strictMode && (msg.content.length > 700 || /here is|explanation|let me|as you can see/i.test(msg.content))) {
-      console.log(`[OpenCarly] ⚠️ Verbose detected → forcing stricter rules next turn`);
-      this.strictMode = true; // stay in enforcement
-    }
-  }
+interface PluginState {
+  config: CarlyConfig;
+  sessions: Map<string, SessionConfig>;
+  /** Match result from the latest chat.message hook, keyed by sessionID */
+  lastMatch: Map<string, MatchResult>;
+  /** Prompt text from the latest chat.message, keyed by sessionID */
+  lastPrompt: Map<string, string>;
 }
 
-export default OpenCarlyPlugin;
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Extract plain text from message parts.
+ * Parts can be text content or other types; we only care about text.
+ */
+function extractPromptText(parts: Array<{ type: string; [key: string]: unknown }>): string {
+  const textParts: string[] = [];
+
+  for (const part of parts) {
+    if (part.type === "text" && typeof part.text === "string") {
+      textParts.push(part.text);
+    }
+  }
+
+  return textParts.join("\n");
+}
+
+// ---------------------------------------------------------------------------
+// Plugin entry point
+// ---------------------------------------------------------------------------
+
+export const OpenCarly: Plugin = async ({ directory }) => {
+  // Discover config
+  const discovery = discoverConfig(directory);
+  if (!discovery) {
+    // No .opencarly/ found - plugin is inert (no hooks)
+    return {};
+  }
+
+  // Load config
+  let config: CarlyConfig;
+  try {
+    config = loadConfig(discovery.configPath);
+  } catch (_err) {
+    // Invalid config - plugin is inert
+    return {};
+  }
+
+  // Initialize plugin state
+  const state: PluginState = {
+    config,
+    sessions: new Map(),
+    lastMatch: new Map(),
+    lastPrompt: new Map(),
+  };
+
+  // Clean stale sessions on startup
+  try {
+    cleanStaleSessions(discovery.configPath);
+  } catch {
+    // Non-critical, ignore
+  }
+
+  return {
+    // -----------------------------------------------------------------
+    // Event hook: track session lifecycle
+    // -----------------------------------------------------------------
+    event: async ({ event }) => {
+      if (event.type === "session.created") {
+        // Clean stale sessions when a new one starts
+        try {
+          cleanStaleSessions(discovery.configPath);
+        } catch {
+          // ignore
+        }
+      }
+    },
+
+    // -----------------------------------------------------------------
+    // chat.message: scan prompt, detect keywords + star-commands
+    // -----------------------------------------------------------------
+    "chat.message": async (input, output) => {
+      const { sessionID } = input;
+
+      // Extract prompt text from parts
+      const promptText = extractPromptText(
+        output.parts as Array<{ type: string; [key: string]: unknown }>
+      );
+
+      if (!promptText) return;
+
+      // Get or create session
+      const { session, isNew } = getOrCreateSession(
+        discovery.configPath,
+        sessionID,
+        directory
+      );
+
+      if (isNew) {
+        state.sessions.set(sessionID, session);
+      } else if (!state.sessions.has(sessionID)) {
+        state.sessions.set(sessionID, session);
+      }
+
+      const currentSession = state.sessions.get(sessionID)!;
+
+      // Update session activity
+      updateSessionActivity(currentSession, promptText);
+
+      // Apply session overrides to manifest
+      const effectiveManifest = applySessionOverrides(
+        state.config.manifest,
+        currentSession
+      );
+
+      // Run domain matcher
+      const matchResult = matchDomains(promptText, effectiveManifest);
+
+      // Cache results for the system.transform hook
+      state.lastMatch.set(sessionID, matchResult);
+      state.lastPrompt.set(sessionID, promptText);
+
+      // Persist session
+      try {
+        saveSession(discovery.configPath, currentSession);
+      } catch {
+        // Non-critical
+      }
+    },
+
+    // -----------------------------------------------------------------
+    // experimental.chat.system.transform: inject rules into system prompt
+    // -----------------------------------------------------------------
+    "experimental.chat.system.transform": async (input, output) => {
+      const sessionID = input.sessionID;
+      if (!sessionID) return;
+
+      const matchResult = state.lastMatch.get(sessionID);
+      if (!matchResult) return;
+
+      // Get session for prompt count
+      const session = state.sessions.get(sessionID);
+      const promptCount = session?.promptCount ?? 1;
+
+      // Apply session overrides
+      const effectiveManifest = session
+        ? applySessionOverrides(state.config.manifest, session)
+        : state.config.manifest;
+
+      // Determine context bracket
+      const bracket = getBracket(promptCount, state.config.context);
+
+      // Build effective config with overridden manifest
+      const effectiveConfig: CarlyConfig = {
+        ...state.config,
+        manifest: effectiveManifest,
+      };
+
+      // Load all rules
+      const loaded = loadRules(matchResult, effectiveConfig, bracket, promptCount);
+
+      // Override devmode from effective manifest
+      loaded.devmode = effectiveManifest.devmode;
+      loaded.contextEnabled = effectiveManifest.context.state === "active";
+      loaded.commandsEnabled = effectiveManifest.commands.state === "active";
+
+      // Format and inject
+      const formatted = formatRules(loaded);
+      output.system.push(formatted);
+
+      // Cleanup cached match (one-shot per message)
+      state.lastMatch.delete(sessionID);
+      state.lastPrompt.delete(sessionID);
+    },
+
+    // -----------------------------------------------------------------
+    // Compaction hook: preserve CARLY context across compaction
+    // -----------------------------------------------------------------
+    "experimental.session.compacting": async (_input, output) => {
+      output.context.push(
+        "OpenCarly (dynamic rule injection) is active. " +
+        "Rules are injected per-prompt based on keyword matching. " +
+        "Preserve awareness that <carly-rules> blocks contain mandatory instructions."
+      );
+    },
+  };
+};
+
+// Default export for single-export plugin files
+export default OpenCarly;

@@ -1,26 +1,58 @@
 {
   "name": "opencarly",
-  "version": "0.1.0",
-  "description": "CARLY - Just-in-time rules for Opencode. Rules load only when relevant.",
+  "version": "1.0.0",
+  "description": "Context Augmentation & Reinforcement Layer for OpenCode - Dynamic rules that load when relevant, disappear when not.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "bin": {
+    "opencarly": "bin/install.js"
+  },
+  "files": [
+    "dist",
+    "bin",
+    "templates",
+    "commands"
+  ],
   "scripts": {
     "build": "tsc",
-    "dev": "bun run src/index.ts",
-    "test": "bun test",
-    "prepublishOnly": "bun run build"
+    "dev": "tsc --watch",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "@opencode-ai/plugin": "^1.0.0"
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@opencode-ai/plugin": "^1.0.0",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0"
   },
   "peerDependencies": {
-    "opencode": ">=1.2.0"
+    "@opencode-ai/plugin": ">=1.0.0"
   },
-  "keywords": ["opencode", "plugin", "carly", "context", "rules"],
-  "author": "Blaine + Grok 4.2",
+  "keywords": [
+    "opencode",
+    "opencode-plugin",
+    "carly",
+    "carl",
+    "context",
+    "rules",
+    "dynamic-rules",
+    "prompt-engineering",
+    "ai",
+    "coding-agent"
+  ],
+  "author": "Blainexi",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Blainexi/OpenCarly"
+    "url": "git+https://github.com/Blainexi/OpenCarly.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Blainexi/OpenCarly/issues"
+  },
+  "homepage": "https://github.com/Blainexi/OpenCarly#readme",
+  "engines": {
+    "node": ">=18.0.0"
   }
 }

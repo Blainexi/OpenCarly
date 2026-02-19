@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "devmode": false,
+  "globalExclude": [],
+  "domains": {
+    "global": {
+      "state": "active",
+      "alwaysOn": true,
+      "recall": [],
+      "exclude": [],
+      "file": "domains/global.md"
+    },
+    "development": {
+      "state": "active",
+      "alwaysOn": false,
+      "recall": ["fix", "bug", "implement", "refactor", "write code", "function", "class", "component", "feature", "build", "create", "add", "update", "change", "modify", "code"],
+      "exclude": [],
+      "file": "domains/development.md"
+    },
+    "testing": {
+      "state": "active",
+      "alwaysOn": false,
+      "recall": ["test", "testing", "TDD", "coverage", "spec", "jest", "vitest", "unit test", "integration test", "e2e"],
+      "exclude": [],
+      "file": "domains/testing.md"
+    },
+    "security": {
+      "state": "active",
+      "alwaysOn": false,
+      "recall": ["auth", "password", "token", "secret", "encrypt", "security", "permission", "credential", "API key", "OAuth", "JWT", "CORS", "XSS", "SQL injection"],
+      "exclude": [],
+      "file": "domains/security.md"
+    }
+  },
+  "commands": {
+    "state": "active"
+  },
+  "context": {
+    "state": "active"
+  }
+}

@@ -1,0 +1,81 @@
+{
+  "dev": {
+    "description": "Development mode - code over explanation",
+    "rules": [
+      "Code over explanation - show, don't tell",
+      "Prefer diffs and targeted edits over full file rewrites",
+      "Minimize commentary; let the code speak",
+      "If unsure, implement the most common pattern and note the assumption"
+    ]
+  },
+  "review": {
+    "description": "Code review mode",
+    "rules": [
+      "Review code for bugs, security issues, and performance problems",
+      "Flag any anti-patterns or code smells",
+      "Suggest concrete improvements with example code",
+      "Check error handling completeness",
+      "Rate severity: critical / warning / suggestion"
+    ]
+  },
+  "brief": {
+    "description": "Concise responses only",
+    "rules": [
+      "Bullet points only, max 5 items",
+      "No preamble, no summary, no pleasantries",
+      "One sentence max per point",
+      "Skip explanations unless explicitly asked"
+    ]
+  },
+  "plan": {
+    "description": "Planning mode - explore before implementing",
+    "rules": [
+      "Do NOT write code yet",
+      "Explore the codebase to understand the current architecture",
+      "Break the task into numbered steps",
+      "Identify files that need to change",
+      "Call out risks or unknowns",
+      "Wait for user approval before implementing"
+    ]
+  },
+  "discuss": {
+    "description": "Brainstorm and discuss approaches",
+    "rules": [
+      "Present multiple approaches (minimum 2)",
+      "List pros and cons for each",
+      "Make a recommendation but don't assume agreement",
+      "Ask clarifying questions if the problem is ambiguous"
+    ]
+  },
+  "debug": {
+    "description": "Systematic debugging mode",
+    "rules": [
+      "Form hypotheses before making changes",
+      "Add diagnostic logging or print statements",
+      "Test one hypothesis at a time",
+      "Document what was tried and what was learned",
+      "Check the obvious things first (typos, imports, types)"
+    ]
+  },
+  "explain": {
+    "description": "Teaching/explanation mode",
+    "rules": [
+      "Start with a high-level overview, then go into detail",
+      "Use concrete examples from the actual codebase",
+      "Explain the WHY, not just the WHAT",
+      "Relate concepts to common patterns the user likely knows",
+      "Use analogies when helpful"
+    ]
+  },
+  "carly": {
+    "description": "OpenCarly help and configuration guide",
+    "rules": [
+      "You are now in OpenCarly help mode",
+      "Explain how OpenCarly works: domains, star-commands, context brackets, sessions",
+      "Help the user configure their .opencarly/ directory",
+      "Show available domains and their current state",
+      "Guide them through creating custom domains or star-commands",
+      "Reference the manifest.json, commands.json, and context.json files"
+    ]
+  }
+}
