@@ -7,6 +7,7 @@
  * Hook flow per user message:
  * 1. chat.message -> scan prompt for keywords + star-commands, update session
  * 2. experimental.chat.system.transform -> load rules, format, inject into system prompt
+ * 3. experimental.chat.messages.transform -> smart trim stale tool outputs + carly-rules
  */
 
 import type { Plugin } from "@opencode-ai/plugin";
@@ -16,6 +17,7 @@ import type { SessionConfig } from "./config/schema";
 import { matchDomains, type MatchResult } from "./engine/matcher";
 import { loadRules } from "./engine/loader";
 import { getBracket } from "./engine/brackets";
+import { trimMessageHistory } from "./engine/trimmer";
 import { formatRules } from "./formatter/formatter";
 import {
   getOrCreateSession,
@@ -36,6 +38,44 @@ interface PluginState {
   lastMatch: Map<string, MatchResult>;
   /** Prompt text from the latest chat.message, keyed by sessionID */
   lastPrompt: Map<string, string>;
+  /** Injection stats per session for DEVMODE */
+  stats: Map<string, InjectionStats>;
+}
+
+interface InjectionStats {
+  totalRulesInjected: number;
+  totalPromptsProcessed: number;
+  domainsLoadedThisPrompt: string[];
+  commandsLoadedThisPrompt: string[];
+}
+
+// ---------------------------------------------------------------------------
+// Logger helper
+// ---------------------------------------------------------------------------
+
+type LogFn = (
+  level: "debug" | "info" | "warn" | "error",
+  message: string,
+  extra?: Record<string, unknown>
+) => Promise<void>;
+
+function createLogger(
+  client: { app: { log: (opts: { body: { service: string; level: string; message: string; extra?: Record<string, unknown> } }) => Promise<unknown> } }
+): LogFn {
+  return async (level, message, extra) => {
+    try {
+      await client.app.log({
+        body: {
+          service: "opencarly",
+          level,
+          message,
+          extra,
+        },
+      });
+    } catch {
+      // Logging failure should never crash the plugin
+    }
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -58,26 +98,69 @@ function extractPromptText(parts: Array<{ type: string; [key: string]: unknown }
   return textParts.join("\n");
 }
 
+/**
+ * Count total rules across a record of domain -> rules[].
+ */
+function countRules(domains: Record<string, string[]>): number {
+  let count = 0;
+  for (const rules of Object.values(domains)) {
+    count += rules.length;
+  }
+  return count;
+}
+
 // ---------------------------------------------------------------------------
 // Plugin entry point
 // ---------------------------------------------------------------------------
 
-export const OpenCarly: Plugin = async ({ directory }) => {
+export const OpenCarly: Plugin = async ({ directory, client }) => {
+  // Create structured logger
+  const log = createLogger(client as Parameters<typeof createLogger>[0]);
+
   // Discover config
   const discovery = discoverConfig(directory);
   if (!discovery) {
-    // No .opencarly/ found - plugin is inert (no hooks)
+    await log("info", "No .opencarly/ config found - plugin inactive", {
+      searchedFrom: directory,
+    });
     return {};
   }
+
+  await log("info", `Config found at ${discovery.configPath} (${discovery.scope})`, {
+    configPath: discovery.configPath,
+    scope: discovery.scope,
+  });
 
   // Load config
   let config: CarlyConfig;
   try {
     config = loadConfig(discovery.configPath);
-  } catch (_err) {
-    // Invalid config - plugin is inert
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    await log("error", `Config loading failed: ${message}`, {
+      configPath: discovery.configPath,
+      error: message,
+    });
     return {};
   }
+
+  // Log warnings from config validation
+  for (const warning of config.warnings) {
+    await log("warn", warning, { configPath: discovery.configPath });
+  }
+
+  // Log startup summary
+  const domainNames = Object.keys(config.manifest.domains);
+  const commandNames = Object.keys(config.commands);
+  await log("info", "OpenCarly initialized", {
+    domains: domainNames,
+    domainCount: domainNames.length,
+    commands: commandNames,
+    commandCount: commandNames.length,
+    devmode: config.manifest.devmode,
+    contextBrackets: config.manifest.context.state,
+    commandsSystem: config.manifest.commands.state,
+  });
 
   // Initialize plugin state
   const state: PluginState = {
@@ -85,13 +168,17 @@ export const OpenCarly: Plugin = async ({ directory }) => {
     sessions: new Map(),
     lastMatch: new Map(),
     lastPrompt: new Map(),
+    stats: new Map(),
   };
 
   // Clean stale sessions on startup
   try {
-    cleanStaleSessions(discovery.configPath);
+    const cleaned = cleanStaleSessions(discovery.configPath);
+    if (cleaned > 0) {
+      await log("debug", `Cleaned ${cleaned} stale session(s)`);
+    }
   } catch {
-    // Non-critical, ignore
+    // Non-critical
   }
 
   return {
@@ -100,7 +187,6 @@ export const OpenCarly: Plugin = async ({ directory }) => {
     // -----------------------------------------------------------------
     event: async ({ event }) => {
       if (event.type === "session.created") {
-        // Clean stale sessions when a new one starts
         try {
           cleanStaleSessions(discovery.configPath);
         } catch {
@@ -129,9 +215,7 @@ export const OpenCarly: Plugin = async ({ directory }) => {
         directory
       );
 
-      if (isNew) {
-        state.sessions.set(sessionID, session);
-      } else if (!state.sessions.has(sessionID)) {
+      if (isNew || !state.sessions.has(sessionID)) {
         state.sessions.set(sessionID, session);
       }
 
@@ -152,6 +236,17 @@ export const OpenCarly: Plugin = async ({ directory }) => {
       // Cache results for the system.transform hook
       state.lastMatch.set(sessionID, matchResult);
       state.lastPrompt.set(sessionID, promptText);
+
+      // Log match results at debug level
+      await log("debug", "Prompt matched", {
+        sessionID,
+        promptCount: currentSession.promptCount,
+        alwaysOn: matchResult.alwaysOn,
+        matched: Object.keys(matchResult.matched),
+        excluded: Object.keys(matchResult.excluded),
+        globalExcluded: matchResult.globalExcluded,
+        starCommands: matchResult.starCommands,
+      });
 
       // Persist session
       try {
@@ -197,6 +292,35 @@ export const OpenCarly: Plugin = async ({ directory }) => {
       loaded.contextEnabled = effectiveManifest.context.state === "active";
       loaded.commandsEnabled = effectiveManifest.commands.state === "active";
 
+      // Track stats
+      const totalRules =
+        countRules(loaded.alwaysOn) +
+        countRules(loaded.matched) +
+        countRules(loaded.commands) +
+        loaded.bracketRules.length;
+
+      const prevStats = state.stats.get(sessionID);
+      const stats: InjectionStats = {
+        totalRulesInjected: (prevStats?.totalRulesInjected ?? 0) + totalRules,
+        totalPromptsProcessed: (prevStats?.totalPromptsProcessed ?? 0) + 1,
+        domainsLoadedThisPrompt: [
+          ...Object.keys(loaded.alwaysOn),
+          ...Object.keys(loaded.matched),
+        ],
+        commandsLoadedThisPrompt: Object.keys(loaded.commands),
+      };
+      state.stats.set(sessionID, stats);
+
+      // Attach stats to loaded rules for DEVMODE display
+      loaded.injectionStats = {
+        rulesThisPrompt: totalRules,
+        totalRulesSession: stats.totalRulesInjected,
+        totalPromptsSession: stats.totalPromptsProcessed,
+        avgRulesPerPrompt: Math.round(
+          stats.totalRulesInjected / stats.totalPromptsProcessed
+        ),
+      };
+
       // Format and inject
       const formatted = formatRules(loaded);
       output.system.push(formatted);
@@ -207,13 +331,38 @@ export const OpenCarly: Plugin = async ({ directory }) => {
     },
 
     // -----------------------------------------------------------------
+    // experimental.chat.messages.transform: smart tool output trimming
+    // -----------------------------------------------------------------
+    "experimental.chat.messages.transform": async (_input, output) => {
+      // Smart trim: score each tool output in history and trim the
+      // lowest-scoring ones. Also strips stale <carly-rules> blocks.
+      // Factors: age, superseded reads, post-read edits, output size,
+      // tool type (ephemeral vs persistent).
+      const trimConfig = state.config.context.trimming;
+
+      const trimStats = trimMessageHistory(
+        output.messages as Parameters<typeof trimMessageHistory>[0],
+        trimConfig
+      );
+
+      if (trimStats.partsTrimmed > 0 || trimStats.carlyBlocksStripped > 0) {
+        await log("debug", "History trimmed", {
+          partsTrimmed: trimStats.partsTrimmed,
+          tokensSaved: trimStats.tokensSaved,
+          carlyBlocksStripped: trimStats.carlyBlocksStripped,
+          mode: trimConfig.mode,
+        });
+      }
+    },
+
+    // -----------------------------------------------------------------
     // Compaction hook: preserve CARLY context across compaction
     // -----------------------------------------------------------------
     "experimental.session.compacting": async (_input, output) => {
       output.context.push(
         "OpenCarly (dynamic rule injection) is active. " +
-        "Rules are injected per-prompt based on keyword matching. " +
-        "Preserve awareness that <carly-rules> blocks contain mandatory instructions."
+          "Rules are injected per-prompt based on keyword matching. " +
+          "Preserve awareness that <carly-rules> blocks contain mandatory instructions."
       );
     },
   };

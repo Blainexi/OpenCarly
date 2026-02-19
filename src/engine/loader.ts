@@ -58,6 +58,14 @@ export interface LoadedRules {
 
   /** Domains that are available but not loaded (for summary) */
   availableDomains: Array<{ name: string; recall: string[] }>;
+
+  /** Injection stats for DEVMODE display (populated by plugin entry point) */
+  injectionStats: {
+    rulesThisPrompt: number;
+    totalRulesSession: number;
+    totalPromptsSession: number;
+    avgRulesPerPrompt: number;
+  } | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -106,6 +114,7 @@ export function loadRules(
     contextEnabled: manifest.context.state === "active",
     commandsEnabled: manifest.commands.state === "active",
     availableDomains: [],
+    injectionStats: null,
   };
 
   // Load always-on domain rules

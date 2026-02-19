@@ -32,5 +32,10 @@
         "Consider whether the session should be compacted"
       ]
     }
+  },
+  "trimming": {
+    "enabled": true,
+    "mode": "moderate",
+    "preserveLastN": 3
   }
 }

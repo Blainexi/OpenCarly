@@ -1,7 +1,7 @@
 # OpenCarly Design Document
 
 > **Purpose**: Complete reference for building OpenCarly. If chat context is lost, read this file to resume.
-> **Last updated**: Phase 9 - Build passes, all source files implemented
+> **Last updated**: Phase 9+ - Smart tool output trimming system implemented
 
 ---
 
@@ -61,13 +61,87 @@ Thresholds configurable in `context.json`.
 
 ### Hook Strategy
 
-Two hooks work together on every user message:
+Four hooks work together:
 
-1. **`chat.message`** - Fires first. Reads the user's prompt text. Runs keyword matcher and star-command detection. Stores results + bumps session prompt count.
-2. **`experimental.chat.system.transform`** - Fires when building the system prompt. Uses cached match results to load rules, format them, and push into `output.system[]`.
+1. **`chat.message`** - Fires first. Reads the user's prompt text. Runs keyword matcher and star-command detection. Stores results + bumps session prompt count. Logs match results via `client.app.log()`.
+2. **`experimental.chat.system.transform`** - Fires when building the system prompt. Uses cached match results to load rules, format them, and push into `output.system[]`. Tracks injection stats.
+3. **`experimental.chat.messages.transform`** - Strips stale `<carly-rules>` blocks from message history. This is **actual structural token reduction** - old rules in conversation history are stale (each prompt gets fresh rules via system.transform) and waste tokens if left in.
+4. **`experimental.session.compacting`** - Injects context about OpenCarly being active so compacted sessions retain awareness.
 
 Additional:
-- **`event`** - Listen for `session.created` to initialize session tracking and clean stale sessions.
+- **`event`** - Listen for `session.created` to clean stale sessions.
+
+## Logging
+
+The plugin logs via `client.app.log()` (OpenCode structured logging, visible in debug logs):
+
+| Level | When | Example |
+|-------|------|---------|
+| `info` | Startup: config found | "Config found at /path/.opencarly/ (local)" |
+| `info` | Startup: no config | "No .opencarly/ config found - plugin inactive" |
+| `info` | Startup: summary | "OpenCarly initialized" + domain/command counts |
+| `warn` | Config warnings | "Domain X references file Y which does not exist" |
+| `error` | Config load failure | "Config loading failed: manifest.json validation..." |
+| `debug` | Per-prompt matching | "Prompt matched" + matched/excluded domains |
+| `debug` | Stale session cleanup | "Cleaned 3 stale session(s)" |
+
+## Token Efficiency Features
+
+1. **Selective injection**: Only rules relevant to the current prompt are injected (vs all-rules-all-the-time in AGENTS.md)
+2. **Smart tool output trimming**: Multi-factor scoring system that trims stale tool outputs from conversation history (see below)
+3. **Carly-rules stripping**: Removes stale `<carly-rules>` blocks from older messages
+4. **DEVMODE stats**: When DEVMODE=true, injection stats are included (rules this prompt, session total, avg per prompt) for visibility into token impact
+
+## Smart Tool Output Trimming System (`src/engine/trimmer.ts`)
+
+The biggest token consumer in coding sessions is tool outputs (file reads, bash results, grep results) that remain in conversation history long after they're relevant. The trimmer scores each tool output and replaces low-scoring ones with compact summaries.
+
+### Scoring Factors
+
+Each completed tool output gets a relevance score (0-100, lower = more trimmable):
+
+| Factor | Effect | Rationale |
+|--------|--------|-----------|
+| **Age** | -6 per turn | Older outputs are less relevant |
+| **Superseded read** | -60 | Same file was read again more recently - this copy is stale |
+| **Post-read edit** | -50 | File was edited/written after this read - content changed |
+| **Large output** | -8 to -15 | >500 tokens: more savings, probably only partially used |
+| **Ephemeral tool** | -10 | bash/glob/grep are cheap to re-run |
+| **Tiny output** | +200 (skip) | <100 tokens: not worth trimming |
+| **Already compacted** | skip | Has `time.compacted` timestamp |
+
+### Trim Modes (configurable in `context.json`)
+
+```json
+{ "trimming": { "enabled": true, "mode": "moderate", "preserveLastN": 3 } }
+```
+
+| Mode | Threshold | Effect |
+|------|-----------|--------|
+| `conservative` | score < 20 | Only trims very stale/superseded outputs |
+| `moderate` | score < 40 | Good balance (default) |
+| `aggressive` | score < 60 | Trims most things beyond preserveLastN |
+
+`preserveLastN` is a hard floor - last N messages are NEVER trimmed.
+
+### TrimContext Pre-Pass
+
+Before scoring, a single pass catalogs all file operations:
+- Builds a map of `filePath -> [{messageIndex, op: "read"|"edit"|"write"}]`
+- Enables O(1) lookups for "was this file read again later?" and "was this file edited after?"
+
+### Trimmed Output Format
+
+```
+[Trimmed by OpenCarly] Read src/index.ts (224 lines, ~1680 tokens saved)
+Re-read this file if its contents are needed.
+```
+
+Sets `time.compacted = Date.now()` to prevent double-trimming.
+
+### Estimated Token Savings
+
+In a 20-message coding session with typical tool usage: **~10,000-25,000 tokens** (~10-25% of total session)
 
 ## File Structure
 
@@ -88,7 +162,8 @@ opencarly/
 │   │   ├── index.ts                   # Barrel exports
 │   │   ├── matcher.ts                 # Domain keyword matching + star-commands
 │   │   ├── loader.ts                  # Load rules from .md files
-│   │   └── brackets.ts               # Context bracket resolution
+│   │   ├── brackets.ts               # Context bracket resolution
+│   │   └── trimmer.ts                # Smart tool output trimming
 │   ├── session/
 │   │   └── session.ts                 # Session CRUD, overrides, stale cleanup
 │   └── formatter/
@@ -409,6 +484,22 @@ Flags: `--global`, `--local`, `--skip-agents-md`
 - [ ] Session state persists across prompts
 - [ ] DEVMODE toggle works
 
+### Phase 9.5: Post-Review Improvements
+- [x] Structured logging via client.app.log() (startup, warnings, per-prompt debug)
+- [x] Config validation warnings (missing domain files, malformed JSON, bad thresholds)
+- [x] Message history trimming via experimental.chat.messages.transform (strips stale <carly-rules>)
+- [x] Injection stats tracking for DEVMODE (rules/prompt, session totals, averages)
+- [x] Updated DESIGN.md
+
+### Phase 9.6: Smart Tool Output Trimming
+- [x] TrimmingConfigSchema added to context.json schema (mode, preserveLastN)
+- [x] src/engine/trimmer.ts - TrimContext, multi-factor scoring, trimMessageHistory()
+- [x] Wired into experimental.chat.messages.transform hook (replaces simple strip)
+- [x] Updated context.json template with trimming defaults
+- [x] Updated barrel exports (config + engine)
+- [x] tsc compiles clean, dist/ has 12 files
+- [x] Updated DESIGN.md with trimming system docs
+
 ### Phase 10: Polish
 - [ ] README.md
 - [ ] Final code review
@@ -419,24 +510,25 @@ Flags: `--global`, `--local`, `--skip-agents-md`
 ## Current Status
 
 **Active Phase**: 9 - Build & Validate (tsc passes, needs live testing)
-**Last Completed**: Phase 8 - All source files and templates created
+**Last Completed**: Phase 9.6 - Smart tool output trimming system
 **Blockers**: Need to test plugin in a live OpenCode session
 
 ## File Inventory (all files created)
 
 ```
-Source (11 files):
-  src/index.ts                       - Plugin entry point (OpenCarly export + default export)
-  src/config/schema.ts               - Zod schemas: Manifest, DomainConfig, StarCommand, ContextBracket, Session
+Source (12 files):
+  src/index.ts                       - Plugin entry point + 4 hooks (chat.message, system.transform, messages.transform, compacting)
+  src/config/schema.ts               - Zod schemas: Manifest, DomainConfig, StarCommand, ContextBracket, TrimmingConfig, Session
   src/config/discovery.ts            - discoverConfig(): walks up from cwd, falls back to ~/.config/opencarly/
-  src/config/manifest.ts             - loadConfig(), parseDomainFile(), reloadConfig()
+  src/config/manifest.ts             - loadConfig() with warnings collection, parseDomainFile(), reloadConfig()
   src/config/index.ts                - Barrel exports
   src/engine/matcher.ts              - matchDomains(), detectStarCommands()
-  src/engine/loader.ts               - loadRules()
+  src/engine/loader.ts               - loadRules() with injectionStats field
   src/engine/brackets.ts             - getBracket()
+  src/engine/trimmer.ts              - TrimContext, scoreToolPart(), trimMessageHistory() - smart tool output trimming
   src/engine/index.ts                - Barrel exports
   src/session/session.ts             - getOrCreateSession, saveSession, updateSessionActivity, applySessionOverrides, cleanStaleSessions
-  src/formatter/formatter.ts         - formatRules()
+  src/formatter/formatter.ts         - formatRules() with DEVMODE injection stats
 
 Templates (7 files):
   templates/.opencarly/manifest.json   - Default manifest with global, development, testing, security domains

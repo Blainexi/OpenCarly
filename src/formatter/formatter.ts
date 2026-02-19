@@ -74,6 +74,9 @@ export function formatRules(loaded: LoadedRules): string {
 
   // 4. DEVMODE instruction
   if (loaded.devmode) {
+    const statsInfo = loaded.injectionStats
+      ? `\nToken Efficiency: ${loaded.injectionStats.rulesThisPrompt} rules this prompt | ${loaded.injectionStats.totalRulesSession} total session | avg ${loaded.injectionStats.avgRulesPerPrompt}/prompt over ${loaded.injectionStats.totalPromptsSession} prompts`
+      : "";
     sections.push(
       `DEVMODE: on
 You MUST append the following debug block to EVERY response:
@@ -83,7 +86,7 @@ Domains Loaded: [list all loaded domains]
 Rules Applied: [specific rule numbers from each domain]
 Star-Commands: [any active star-commands]
 Bracket: [current context bracket]
-Matched Keywords: [keywords that triggered domains]`
+Matched Keywords: [keywords that triggered domains]${statsInfo}`
     );
   } else {
     sections.push(

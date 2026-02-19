@@ -99,6 +99,35 @@ export const ContextBracketSchema = z.object({
 
 export type ContextBracket = z.infer<typeof ContextBracketSchema>;
 
+// ---------------------------------------------------------------------------
+// Tool Output Trimming (inside context.json)
+// ---------------------------------------------------------------------------
+
+export const TrimmingConfigSchema = z.object({
+  /** Whether tool output trimming is enabled */
+  enabled: z.boolean().default(true),
+
+  /**
+   * Trimming aggressiveness mode:
+   * - conservative: only trims very stale/superseded outputs (threshold=20)
+   * - moderate: good balance of savings vs safety (threshold=40)
+   * - aggressive: trims most things beyond preserveLastN (threshold=60)
+   */
+  mode: z.enum(["conservative", "moderate", "aggressive"]).default("moderate"),
+
+  /** Hard floor: never trim tool outputs in the last N messages */
+  preserveLastN: z.number().min(1).default(3),
+});
+
+export type TrimmingConfig = z.infer<typeof TrimmingConfigSchema>;
+
+/** Map trimming mode to score threshold */
+export const TRIM_THRESHOLDS: Record<string, number> = {
+  conservative: 20,
+  moderate: 40,
+  aggressive: 60,
+};
+
 export const ContextFileSchema = z.object({
   /** Prompt count thresholds for bracket transitions */
   thresholds: z
@@ -117,6 +146,9 @@ export const ContextFileSchema = z.object({
       depleted: ContextBracketSchema.default({ enabled: true, rules: [] }),
     })
     .default({}),
+
+  /** Smart tool output trimming configuration */
+  trimming: TrimmingConfigSchema.default({}),
 });
 
 export type ContextFile = z.infer<typeof ContextFileSchema>;
