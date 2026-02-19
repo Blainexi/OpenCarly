@@ -11,11 +11,12 @@
  */
 
 import type { Plugin } from "@opencode-ai/plugin";
+import { tool } from "@opencode-ai/plugin";
 import { discoverConfig } from "./config/discovery";
 import { loadConfig, type CarlyConfig } from "./config/manifest";
-import type { SessionConfig } from "./config/schema";
+import type { SessionConfig, TokenStats } from "./config/schema";
 import { matchDomains, type MatchResult } from "./engine/matcher";
-import { loadRules } from "./engine/loader";
+import { loadRules, calculateBaseline } from "./engine/loader";
 import { getBracket } from "./engine/brackets";
 import { trimMessageHistory } from "./engine/trimmer";
 import { formatRules } from "./formatter/formatter";
@@ -25,6 +26,10 @@ import {
   saveSession,
   applySessionOverrides,
   cleanStaleSessions,
+  loadCumulativeStats,
+  updateCumulativeStats,
+  filterSessionsByDuration,
+  type CumulativeStats,
 } from "./session/session";
 
 // ---------------------------------------------------------------------------
@@ -38,15 +43,12 @@ interface PluginState {
   lastMatch: Map<string, MatchResult>;
   /** Prompt text from the latest chat.message, keyed by sessionID */
   lastPrompt: Map<string, string>;
-  /** Injection stats per session for DEVMODE */
-  stats: Map<string, InjectionStats>;
-}
-
-interface InjectionStats {
-  totalRulesInjected: number;
-  totalPromptsProcessed: number;
-  domainsLoadedThisPrompt: string[];
-  commandsLoadedThisPrompt: string[];
+  /** Most recently active session ID (for hooks without sessionID) */
+  activeSessionID: string | null;
+  /** Baseline: estimated tokens if all rules loaded every prompt */
+  baselineTokensPerPrompt: number;
+  /** Cumulative stats from all sessions (loaded from stats.json) */
+  cumulativeStats: CumulativeStats;
 }
 
 // ---------------------------------------------------------------------------
@@ -84,17 +86,14 @@ function createLogger(
 
 /**
  * Extract plain text from message parts.
- * Parts can be text content or other types; we only care about text.
  */
 function extractPromptText(parts: Array<{ type: string; [key: string]: unknown }>): string {
   const textParts: string[] = [];
-
   for (const part of parts) {
     if (part.type === "text" && typeof part.text === "string") {
       textParts.push(part.text);
     }
   }
-
   return textParts.join("\n");
 }
 
@@ -109,12 +108,95 @@ function countRules(domains: Record<string, string[]>): number {
   return count;
 }
 
-// ---------------------------------------------------------------------------
+/**
+ * Estimate tokens from a rule array (~4 chars per token).
+ */
+function estimateRuleTokens(rules: Record<string, string[]>): number {
+  let chars = 0;
+  for (const ruleList of Object.values(rules)) {
+    for (const rule of ruleList) {
+      chars += rule.length;
+    }
+  }
+  return Math.ceil(chars / 4);
+}
+
+/**
+ * Estimate tokens from a string.
+ */
+function estimateTokens(text: string): number {
+  return Math.ceil(text.length / 4);
+}
+
+/**
+ * Build a token savings report string for direct injection into system prompt.
+ * This ensures the report displays reliably regardless of Plan Mode or AI following rules.
+ */
+function buildTokenReport(
+  stats: {
+    tokensSkippedBySelection: number;
+    tokensInjected: number;
+    tokensTrimmedFromHistory: number;
+    tokensTrimmedCarlyBlocks: number;
+    promptsProcessed: number;
+    baselineTokensPerPrompt: number;
+  },
+  _baselinePerPrompt: number,
+  filtered: {
+    filteredSessions: Array<{
+      sessionId: string;
+      date: string;
+      tokensSaved: number;
+      promptsProcessed: number;
+    }>;
+    filteredTotal: number;
+    durationLabel: string;
+  }
+): string {
+  // Current session stats
+  const totalSaved =
+    stats.tokensSkippedBySelection +
+    stats.tokensTrimmedFromHistory +
+    stats.tokensTrimmedCarlyBlocks;
+
+  // Format session history (most recent first, last 10)
+  const recentSessions = filtered.filteredSessions
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+    .slice(0, 10)
+    .map((s) => {
+      const date = new Date(s.date).toISOString().split("T")[0];
+      return `  ${s.sessionId.slice(0, 12)}... | ${date} | ~${s.tokensSaved.toLocaleString()} tokens | ${s.promptsProcessed} prompts`;
+    })
+    .join("\n");
+
+  return `
+============================================================
+OPENCARLY TOKEN SAVINGS REPORT
+============================================================
+
+CURRENT SESSION:
+  Prompts processed: ${stats.promptsProcessed}
+  Tokens saved this session: ~${totalSaved.toLocaleString()}
+  - Selective rule injection: ~${stats.tokensSkippedBySelection.toLocaleString()}
+  - History trimming: ~${(
+    stats.tokensTrimmedFromHistory + stats.tokensTrimmedCarlyBlocks
+  ).toLocaleString()}
+
+ALL-TIME (filtered by: ${filtered.durationLabel}, ${filtered.filteredSessions.length} sessions):
+  Total tokens saved: ~${filtered.filteredTotal.toLocaleString()}
+  Average per session: ~${Math.round(filtered.filteredTotal / Math.max(1, filtered.filteredSessions.length)).toLocaleString()}
+
+SESSION HISTORY:
+${recentSessions || "  (no previous sessions)"}
+
+============================================================
+`;
+}
+
 // Plugin entry point
 // ---------------------------------------------------------------------------
 
 export const OpenCarly: Plugin = async ({ directory, client }) => {
-  // Create structured logger
   const log = createLogger(client as Parameters<typeof createLogger>[0]);
 
   // Discover config
@@ -144,10 +226,13 @@ export const OpenCarly: Plugin = async ({ directory, client }) => {
     return {};
   }
 
-  // Log warnings from config validation
+  // Log warnings
   for (const warning of config.warnings) {
     await log("warn", warning, { configPath: discovery.configPath });
   }
+
+  // Calculate baseline (all rules loaded every prompt)
+  const baselineTokensPerPrompt = calculateBaseline(config);
 
   // Log startup summary
   const domainNames = Object.keys(config.manifest.domains);
@@ -160,15 +245,20 @@ export const OpenCarly: Plugin = async ({ directory, client }) => {
     devmode: config.manifest.devmode,
     contextBrackets: config.manifest.context.state,
     commandsSystem: config.manifest.commands.state,
+    baselineTokensPerPrompt,
   });
 
-  // Initialize plugin state
+  // Initialize state
+  const cumulativeStats = loadCumulativeStats(discovery.configPath);
+
   const state: PluginState = {
     config,
     sessions: new Map(),
     lastMatch: new Map(),
     lastPrompt: new Map(),
-    stats: new Map(),
+    activeSessionID: null,
+    baselineTokensPerPrompt,
+    cumulativeStats,
   };
 
   // Clean stale sessions on startup
@@ -183,7 +273,7 @@ export const OpenCarly: Plugin = async ({ directory, client }) => {
 
   return {
     // -----------------------------------------------------------------
-    // Event hook: track session lifecycle
+    // Event hook: track session lifecycle and intercept commands
     // -----------------------------------------------------------------
     event: async ({ event }) => {
       if (event.type === "session.created") {
@@ -191,6 +281,50 @@ export const OpenCarly: Plugin = async ({ directory, client }) => {
           cleanStaleSessions(discovery.configPath);
         } catch {
           // ignore
+        }
+      }
+
+      // Intercept *stats command - bypass AI, read and output directly
+      if (event.type === "message.updated") {
+        const message = (event as unknown as { properties?: { message?: { role?: string; content?: string } } }).properties?.message;
+        if (message?.role === "user" && message.content?.includes("*stats")) {
+          const stats = loadCumulativeStats(directory);
+          const currentSession = stats.sessions[stats.sessions.length - 1];
+
+          const formatNumber = (n: number) => {
+            if (n >= 1000000) return `${(n / 1000000).toFixed(1)}M`;
+            if (n >= 1000) return `${(n / 1000).toFixed(1)}K`;
+            return n.toString();
+          };
+
+          let output = `# OPENCARLY TOKEN SAVINGS REPORT\n\n`;
+          output += `## CURRENT SESSION\n`;
+          output += `| Metric | Value |\n|--------|-------|\n`;
+          output += `| Prompts processed | ${currentSession?.promptsProcessed || 0} |\n`;
+          output += `| Tokens saved | ${formatNumber(currentSession?.tokensSaved || 0)} |\n`;
+          output += `| - Selective rule injection | ${formatNumber(currentSession?.tokensSaved || 0)} |\n`;
+          output += `| - History trimming | 0 |\n\n`;
+
+          output += `## ALL-TIME\n`;
+          output += `| Metric | Value |\n|--------|-------|\n`;
+          output += `| Total tokens saved | ${formatNumber(stats.cumulative.totalTokensSaved)} |\n`;
+          output += `| Sessions | ${stats.sessions.length} |\n`;
+          output += `| Average per session | ${formatNumber(Math.round(stats.cumulative.totalTokensSaved / (stats.sessions.length || 1)))} |\n\n`;
+
+          output += `## SESSION HISTORY\n`;
+          for (const session of stats.sessions.slice().reverse()) {
+            output += `- ${session.date?.split("T")[0] || "Unknown"}: ${formatNumber(session.tokensSaved)} tokens (${session.promptsProcessed} prompts)\n`;
+          }
+
+          const sessionId = (event as unknown as { session_id?: string }).session_id;
+          if (sessionId) {
+            await client.session.prompt({
+              path: { id: sessionId },
+              body: {
+                parts: [{ type: "text", text: output }],
+              },
+            });
+          }
         }
       }
     },
@@ -201,11 +335,9 @@ export const OpenCarly: Plugin = async ({ directory, client }) => {
     "chat.message": async (input, output) => {
       const { sessionID } = input;
 
-      // Extract prompt text from parts
       const promptText = extractPromptText(
         output.parts as Array<{ type: string; [key: string]: unknown }>
       );
-
       if (!promptText) return;
 
       // Get or create session
@@ -221,10 +353,15 @@ export const OpenCarly: Plugin = async ({ directory, client }) => {
 
       const currentSession = state.sessions.get(sessionID)!;
 
+      // Set baseline on session if not set
+      if (currentSession.tokenStats.baselineTokensPerPrompt === 0) {
+        currentSession.tokenStats.baselineTokensPerPrompt = state.baselineTokensPerPrompt;
+      }
+
       // Update session activity
       updateSessionActivity(currentSession, promptText);
 
-      // Apply session overrides to manifest
+      // Apply session overrides
       const effectiveManifest = applySessionOverrides(
         state.config.manifest,
         currentSession
@@ -233,11 +370,12 @@ export const OpenCarly: Plugin = async ({ directory, client }) => {
       // Run domain matcher
       const matchResult = matchDomains(promptText, effectiveManifest);
 
-      // Cache results for the system.transform hook
+      // Cache for system.transform hook
       state.lastMatch.set(sessionID, matchResult);
       state.lastPrompt.set(sessionID, promptText);
+      state.activeSessionID = sessionID;
 
-      // Log match results at debug level
+      // Log match results
       await log("debug", "Prompt matched", {
         sessionID,
         promptCount: currentSession.promptCount,
@@ -266,9 +404,16 @@ export const OpenCarly: Plugin = async ({ directory, client }) => {
       const matchResult = state.lastMatch.get(sessionID);
       if (!matchResult) return;
 
-      // Get session for prompt count
       const session = state.sessions.get(sessionID);
       const promptCount = session?.promptCount ?? 1;
+      const tokenStats: TokenStats = session?.tokenStats ?? {
+        tokensSkippedBySelection: 0,
+        tokensInjected: 0,
+        tokensTrimmedFromHistory: 0,
+        tokensTrimmedCarlyBlocks: 0,
+        promptsProcessed: 0,
+        baselineTokensPerPrompt: state.baselineTokensPerPrompt,
+      };
 
       // Apply session overrides
       const effectiveManifest = session
@@ -278,13 +423,13 @@ export const OpenCarly: Plugin = async ({ directory, client }) => {
       // Determine context bracket
       const bracket = getBracket(promptCount, state.config.context);
 
-      // Build effective config with overridden manifest
+      // Build effective config
       const effectiveConfig: CarlyConfig = {
         ...state.config,
         manifest: effectiveManifest,
       };
 
-      // Load all rules
+      // Load rules
       const loaded = loadRules(matchResult, effectiveConfig, bracket, promptCount);
 
       // Override devmode from effective manifest
@@ -292,40 +437,99 @@ export const OpenCarly: Plugin = async ({ directory, client }) => {
       loaded.contextEnabled = effectiveManifest.context.state === "active";
       loaded.commandsEnabled = effectiveManifest.commands.state === "active";
 
-      // Track stats
-      const totalRules =
+      // --- Token stats calculation ---
+      const totalRulesThisPrompt =
         countRules(loaded.alwaysOn) +
         countRules(loaded.matched) +
         countRules(loaded.commands) +
         loaded.bracketRules.length;
 
-      const prevStats = state.stats.get(sessionID);
-      const stats: InjectionStats = {
-        totalRulesInjected: (prevStats?.totalRulesInjected ?? 0) + totalRules,
-        totalPromptsProcessed: (prevStats?.totalPromptsProcessed ?? 0) + 1,
-        domainsLoadedThisPrompt: [
-          ...Object.keys(loaded.alwaysOn),
-          ...Object.keys(loaded.matched),
-        ],
-        commandsLoadedThisPrompt: Object.keys(loaded.commands),
-      };
-      state.stats.set(sessionID, stats);
+      const tokensInjectedThisPrompt =
+        estimateRuleTokens(loaded.alwaysOn) +
+        estimateRuleTokens(loaded.matched) +
+        estimateRuleTokens(loaded.commands) +
+        estimateTokens(loaded.bracketRules.join(""));
 
-      // Attach stats to loaded rules for DEVMODE display
+      const tokensSkippedThisPrompt = Math.max(
+        0,
+        state.baselineTokensPerPrompt - tokensInjectedThisPrompt
+      );
+
+      // Accumulate stats
+      tokenStats.tokensInjected += tokensInjectedThisPrompt;
+      tokenStats.tokensSkippedBySelection += tokensSkippedThisPrompt;
+      tokenStats.promptsProcessed += 1;
+
+      // Update session
+      if (session) {
+        session.tokenStats = tokenStats;
+        try {
+          saveSession(discovery.configPath, session);
+        } catch {
+          // Non-critical
+        }
+      }
+
+      // Attach injection stats for DEVMODE display
       loaded.injectionStats = {
-        rulesThisPrompt: totalRules,
-        totalRulesSession: stats.totalRulesInjected,
-        totalPromptsSession: stats.totalPromptsProcessed,
-        avgRulesPerPrompt: Math.round(
-          stats.totalRulesInjected / stats.totalPromptsProcessed
-        ),
+        rulesThisPrompt: totalRulesThisPrompt,
+        totalRulesSession: tokenStats.promptsProcessed > 0
+          ? Math.round(tokenStats.tokensInjected / Math.max(1, tokensInjectedThisPrompt)) * totalRulesThisPrompt
+          : totalRulesThisPrompt,
+        totalPromptsSession: tokenStats.promptsProcessed,
+        avgRulesPerPrompt: tokenStats.promptsProcessed > 0
+          ? Math.round((tokenStats.tokensInjected / tokenStats.promptsProcessed) / Math.max(1, tokensInjectedThisPrompt / totalRulesThisPrompt))
+          : totalRulesThisPrompt,
+      };
+
+      // Attach token savings for *stats and DEVMODE
+      const totalSaved =
+        tokenStats.tokensSkippedBySelection +
+        tokenStats.tokensTrimmedFromHistory +
+        tokenStats.tokensTrimmedCarlyBlocks;
+
+      const showFullReport = matchResult.starCommands.includes("stats");
+
+      loaded.tokenSavings = {
+        skippedBySelection: tokenStats.tokensSkippedBySelection,
+        trimmedFromHistory: tokenStats.tokensTrimmedFromHistory,
+        trimmedCarlyBlocks: tokenStats.tokensTrimmedCarlyBlocks,
+        tokensInjected: tokenStats.tokensInjected,
+        baselinePerPrompt: state.baselineTokensPerPrompt,
+        totalSaved,
+        promptsProcessed: tokenStats.promptsProcessed,
+        showFullReport,
       };
 
       // Format and inject
       const formatted = formatRules(loaded);
       output.system.push(formatted);
 
-      // Cleanup cached match (one-shot per message)
+      // If *stats command was used, inject the report directly into system prompt
+      // This ensures it displays regardless of AI following rules or Plan Mode
+      if (showFullReport && session) {
+        const filtered = filterSessionsByDuration(
+          state.cumulativeStats,
+          state.config.context.stats
+        );
+        const report = buildTokenReport(
+          tokenStats,
+          state.baselineTokensPerPrompt,
+          filtered
+        );
+        output.system.push(report);
+      }
+
+      // Persist session with updated stats
+      if (session) {
+        try {
+          saveSession(discovery.configPath, session);
+        } catch {
+          // Non-critical
+        }
+      }
+
+      // Cleanup cached match
       state.lastMatch.delete(sessionID);
       state.lastPrompt.delete(sessionID);
     },
@@ -334,10 +538,6 @@ export const OpenCarly: Plugin = async ({ directory, client }) => {
     // experimental.chat.messages.transform: smart tool output trimming
     // -----------------------------------------------------------------
     "experimental.chat.messages.transform": async (_input, output) => {
-      // Smart trim: score each tool output in history and trim the
-      // lowest-scoring ones. Also strips stale <carly-rules> blocks.
-      // Factors: age, superseded reads, post-read edits, output size,
-      // tool type (ephemeral vs persistent).
       const trimConfig = state.config.context.trimming;
 
       const trimStats = trimMessageHistory(
@@ -345,7 +545,30 @@ export const OpenCarly: Plugin = async ({ directory, client }) => {
         trimConfig
       );
 
-      if (trimStats.partsTrimmed > 0 || trimStats.carlyBlocksStripped > 0) {
+      // Accumulate trim stats to the session
+      if (trimStats.tokensSaved > 0 || trimStats.carlyBlocksStripped > 0) {
+        const sessionID = state.activeSessionID;
+        const session = sessionID ? state.sessions.get(sessionID) : undefined;
+
+        if (session) {
+          session.tokenStats.tokensTrimmedFromHistory += trimStats.tokensSaved;
+          session.tokenStats.tokensTrimmedCarlyBlocks +=
+            trimStats.carlyBlocksStripped > 0
+              ? estimateTokens("<carly-rules>...</carly-rules>") * trimStats.carlyBlocksStripped
+              : 0;
+
+          try {
+            saveSession(discovery.configPath, session);
+            // Update cumulative stats on every prompt
+            state.cumulativeStats = updateCumulativeStats(
+              discovery.configPath,
+              session
+            );
+          } catch {
+            // Non-critical
+          }
+        }
+
         await log("debug", "History trimmed", {
           partsTrimmed: trimStats.partsTrimmed,
           tokensSaved: trimStats.tokensSaved,
@@ -364,6 +587,44 @@ export const OpenCarly: Plugin = async ({ directory, client }) => {
           "Rules are injected per-prompt based on keyword matching. " +
           "Preserve awareness that <carly-rules> blocks contain mandatory instructions."
       );
+    },
+
+    tool: {
+      stats: tool({
+        description: "Get OpenCarly token savings statistics",
+        args: {},
+        execute: async (_args: Record<string, never>, context: { directory: string }): Promise<string> => {
+          const stats = loadCumulativeStats(context.directory);
+          const currentSession = stats.sessions[stats.sessions.length - 1];
+
+          const formatNumber = (n: number) => {
+            if (n >= 1000000) return `${(n / 1000000).toFixed(1)}M`;
+            if (n >= 1000) return `${(n / 1000).toFixed(1)}K`;
+            return n.toString();
+          };
+
+          let output = `# OPENCARLY TOKEN SAVINGS REPORT\n\n`;
+          output += `## CURRENT SESSION\n`;
+          output += `| Metric | Value |\n|--------|-------|\n`;
+          output += `| Prompts processed | ${currentSession?.promptsProcessed || 0} |\n`;
+          output += `| Tokens saved | ${formatNumber(currentSession?.tokensSaved || 0)} |\n`;
+          output += `| - Selective rule injection | ${formatNumber(currentSession?.tokensSaved || 0)} |\n`;
+          output += `| - History trimming | 0 |\n\n`;
+
+          output += `## ALL-TIME\n`;
+          output += `| Metric | Value |\n|--------|-------|\n`;
+          output += `| Total tokens saved | ${formatNumber(stats.cumulative.totalTokensSaved)} |\n`;
+          output += `| Sessions | ${stats.sessions.length} |\n`;
+          output += `| Average per session | ${formatNumber(Math.round(stats.cumulative.totalTokensSaved / (stats.sessions.length || 1)))} |\n\n`;
+
+          output += `## SESSION HISTORY\n`;
+          for (const session of stats.sessions.slice().reverse()) {
+            output += `- ${session.date?.split("T")[0] || "Unknown"}: ${formatNumber(session.tokensSaved)} tokens (${session.promptsProcessed} prompts)\n`;
+          }
+
+          return output;
+        },
+      }),
     },
   };
 };

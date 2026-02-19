@@ -66,6 +66,26 @@ export interface LoadedRules {
     totalPromptsSession: number;
     avgRulesPerPrompt: number;
   } | null;
+
+  /** Cumulative token savings for the session (populated by plugin entry point) */
+  tokenSavings: {
+    /** Tokens saved by not loading all rules every prompt */
+    skippedBySelection: number;
+    /** Tokens trimmed from conversation history (tool outputs) */
+    trimmedFromHistory: number;
+    /** Tokens trimmed from stale carly-rules blocks */
+    trimmedCarlyBlocks: number;
+    /** Total tokens of rules actually injected this session */
+    tokensInjected: number;
+    /** Baseline: what all rules would cost per prompt */
+    baselinePerPrompt: number;
+    /** Total estimated savings */
+    totalSaved: number;
+    /** Prompts processed */
+    promptsProcessed: number;
+    /** Whether *stats command is active (show full report) */
+    showFullReport: boolean;
+  } | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -82,6 +102,49 @@ function loadDomainRules(
 ): string[] {
   const filePath = path.join(configPath, domain.file);
   return parseDomainFile(filePath);
+}
+
+// ---------------------------------------------------------------------------
+// Baseline calculation
+// ---------------------------------------------------------------------------
+
+/**
+ * Calculate the "all rules loaded every prompt" baseline.
+ * This is what you'd get if you put everything in AGENTS.md.
+ * Returns estimated tokens per prompt.
+ */
+export function calculateBaseline(config: CarlyConfig): number {
+  const { manifest, commands, configPath } = config;
+  let totalRuleText = 0;
+
+  // All domain rules
+  for (const [, domain] of Object.entries(manifest.domains)) {
+    if (domain.state === "inactive") continue;
+    const filePath = path.join(configPath, domain.file);
+    const rules = parseDomainFile(filePath);
+    for (const rule of rules) {
+      totalRuleText += rule.length;
+    }
+  }
+
+  // All star-command rules
+  for (const [, cmd] of Object.entries(commands)) {
+    for (const rule of cmd.rules) {
+      totalRuleText += rule.length;
+    }
+  }
+
+  // All bracket rules (pick the longest bracket)
+  const { context } = config;
+  const bracketRuleLengths = [
+    context.brackets.fresh.rules.join("").length,
+    context.brackets.moderate.rules.join("").length,
+    context.brackets.depleted.rules.join("").length,
+  ];
+  totalRuleText += Math.max(...bracketRuleLengths, 0);
+
+  // Convert chars to estimated tokens
+  return Math.ceil(totalRuleText / 4);
 }
 
 // ---------------------------------------------------------------------------
@@ -115,6 +178,7 @@ export function loadRules(
     commandsEnabled: manifest.commands.state === "active",
     availableDomains: [],
     injectionStats: null,
+    tokenSavings: null,
   };
 
   // Load always-on domain rules

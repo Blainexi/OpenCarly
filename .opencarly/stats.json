@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "cumulative": {
+    "tokensSkippedBySelection": 10049433,
+    "tokensInjected": 7261,
+    "tokensTrimmedFromHistory": 5266939,
+    "tokensTrimmedCarlyBlocks": 0,
+    "totalTokensSaved": 15316372
+  },
+  "sessions": [
+    {
+      "sessionId": "ses_38bc2a4ccffeYmceYt9Cp4WTgW",
+      "date": "2026-02-19T04:51:44.056Z",
+      "tokensSaved": 5288018,
+      "promptsProcessed": 26
+    },
+    {
+      "sessionId": "ses_38bc768e5ffep7e3jthS1i71wa",
+      "date": "2026-02-19T04:46:31.714Z",
+      "tokensSaved": 1623,
+      "promptsProcessed": 2
+    },
+    {
+      "sessionId": "ses_38bc75385ffeXqFI31gfQrPEVq",
+      "date": "2026-02-19T04:46:37.180Z",
+      "tokensSaved": 796,
+      "promptsProcessed": 1
+    },
+    {
+      "sessionId": "ses_38c3bede8ffeo7eIqZeAvgR058",
+      "date": "2026-02-19T02:39:15.485Z",
+      "tokensSaved": 7663,
+      "promptsProcessed": 5
+    },
+    {
+      "sessionId": "ses_38ca50fc3ffeWNSTi4rCiJBugp",
+      "date": "2026-02-19T02:27:32.218Z",
+      "tokensSaved": 4782618,
+      "promptsProcessed": 29
+    }
+  ]
+}

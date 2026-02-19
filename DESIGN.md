@@ -1,7 +1,7 @@
 # OpenCarly Design Document
 
 > **Purpose**: Complete reference for building OpenCarly. If chat context is lost, read this file to resume.
-> **Last updated**: Phase 9+ - Smart tool output trimming system implemented
+> **Last updated**: Phase 9+ - Token savings tracking and *stats command implemented
 
 ---
 
@@ -142,6 +142,64 @@ Sets `time.compacted = Date.now()` to prevent double-trimming.
 ### Estimated Token Savings
 
 In a 20-message coding session with typical tool usage: **~10,000-25,000 tokens** (~10-25% of total session)
+
+## Token Savings Tracking
+
+Built-in measurement so users can see exactly what OpenCarly is doing for them.
+
+### How it works
+
+1. **Baseline calculation** (`calculateBaseline()` in `loader.ts`): At startup, loads ALL domain rules + ALL command rules + longest bracket rules. Estimates tokens (~4 chars/token). This is the "everything in AGENTS.md" comparison number.
+
+2. **Per-prompt tracking** (in `index.ts` system.transform hook):
+   - Measures tokens actually injected this prompt
+   - Calculates `skipped = baseline - injected` (selective injection savings)
+   - Accumulates to session `tokenStats`
+
+3. **Trim tracking** (in `index.ts` messages.transform hook):
+   - Receives `TrimStats` from the trimmer (tokens saved, blocks stripped)
+   - Accumulates to session `tokenStats`
+
+4. **Persistence**: Stats are stored in the session JSON file and survive plugin reloads.
+
+### Accessing stats
+
+**DEVMODE** (`devmode: true` in manifest.json): Every response includes a compact savings line:
+```
+Token Savings: ~12,400 tokens saved this session (selection: ~2,400, trimming: ~8,200)
+```
+
+**`*stats` command**: User types `*stats` in any prompt to get a full report:
+```
+--- OPENCARLY TOKEN SAVINGS REPORT ---
+Session Stats:
+  Prompts processed: 12
+  Baseline (all rules every prompt): ~450 tokens/prompt
+  Actual injected this session: ~3,200 tokens total
+
+Savings Breakdown:
+  Selective rule injection: ~2,400 tokens saved
+  History trimming (tool outputs): ~8,200 tokens saved
+  History trimming (stale rules): ~1,800 tokens saved
+
+Total Estimated Savings: ~12,400 tokens (~15% reduction)
+--- END REPORT ---
+```
+
+### Schema: TokenStats (in SessionConfig)
+
+```json
+{
+  "tokenStats": {
+    "tokensSkippedBySelection": 2400,
+    "tokensInjected": 3200,
+    "tokensTrimmedFromHistory": 8200,
+    "tokensTrimmedCarlyBlocks": 1800,
+    "promptsProcessed": 12,
+    "baselineTokensPerPrompt": 450
+  }
+}
+```
 
 ## File Structure
 
@@ -500,6 +558,18 @@ Flags: `--global`, `--local`, `--skip-agents-md`
 - [x] tsc compiles clean, dist/ has 12 files
 - [x] Updated DESIGN.md with trimming system docs
 
+### Phase 9.7: Token Savings Tracking & *stats Command
+- [x] TokenStatsSchema added to SessionConfig schema
+- [x] calculateBaseline() in loader.ts - counts all-rules token total
+- [x] Plugin state in index.ts accumulates token stats per session
+- [x] Stats persisted in session JSON files
+- [x] Formatter shows compact savings line in DEVMODE
+- [x] Formatter shows full report when *stats command is active
+- [x] *stats star-command added to commands.json template
+- [x] Updated barrel exports (config + engine)
+- [x] tsc compiles clean
+- [x] Updated DESIGN.md
+
 ### Phase 10: Polish
 - [ ] README.md
 - [ ] Final code review
@@ -510,7 +580,7 @@ Flags: `--global`, `--local`, `--skip-agents-md`
 ## Current Status
 
 **Active Phase**: 9 - Build & Validate (tsc passes, needs live testing)
-**Last Completed**: Phase 9.6 - Smart tool output trimming system
+**Last Completed**: Phase 9.7 - Token savings tracking and *stats command
 **Blockers**: Need to test plugin in a live OpenCode session
 
 ## File Inventory (all files created)
@@ -518,21 +588,21 @@ Flags: `--global`, `--local`, `--skip-agents-md`
 ```
 Source (12 files):
   src/index.ts                       - Plugin entry point + 4 hooks (chat.message, system.transform, messages.transform, compacting)
-  src/config/schema.ts               - Zod schemas: Manifest, DomainConfig, StarCommand, ContextBracket, TrimmingConfig, Session
+  src/config/schema.ts               - Zod schemas: Manifest, DomainConfig, StarCommand, ContextBracket, TrimmingConfig, TokenStats, Session
   src/config/discovery.ts            - discoverConfig(): walks up from cwd, falls back to ~/.config/opencarly/
   src/config/manifest.ts             - loadConfig() with warnings collection, parseDomainFile(), reloadConfig()
   src/config/index.ts                - Barrel exports
   src/engine/matcher.ts              - matchDomains(), detectStarCommands()
-  src/engine/loader.ts               - loadRules() with injectionStats field
+  src/engine/loader.ts               - loadRules() with injectionStats + tokenSavings fields, calculateBaseline()
   src/engine/brackets.ts             - getBracket()
   src/engine/trimmer.ts              - TrimContext, scoreToolPart(), trimMessageHistory() - smart tool output trimming
   src/engine/index.ts                - Barrel exports
   src/session/session.ts             - getOrCreateSession, saveSession, updateSessionActivity, applySessionOverrides, cleanStaleSessions
-  src/formatter/formatter.ts         - formatRules() with DEVMODE injection stats
+  src/formatter/formatter.ts         - formatRules() with DEVMODE injection/savings stats + *stats full report
 
 Templates (7 files):
   templates/.opencarly/manifest.json   - Default manifest with global, development, testing, security domains
-  templates/.opencarly/commands.json   - 8 star-commands: dev, review, brief, plan, discuss, debug, explain, carly
+  templates/.opencarly/commands.json   - 9 star-commands: dev, review, brief, plan, discuss, debug, explain, carly, stats
   templates/.opencarly/context.json    - Bracket thresholds (15/35/50) and rules for fresh/moderate/depleted
   templates/.opencarly/domains/global.md
   templates/.opencarly/domains/development.md

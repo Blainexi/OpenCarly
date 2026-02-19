@@ -121,6 +121,22 @@ export const TrimmingConfigSchema = z.object({
 
 export type TrimmingConfig = z.infer<typeof TrimmingConfigSchema>;
 
+// ---------------------------------------------------------------------------
+// Stats Tracking (inside context.json)
+// ---------------------------------------------------------------------------
+
+export const StatsConfigSchema = z.object({
+  /**
+   * Duration to track stats:
+   * - "all": All sessions (default)
+   * - "month": Only sessions from last 30 days
+   * - "week": Only sessions from last 7 days
+   */
+  trackDuration: z.enum(["all", "month", "week"]).default("all"),
+});
+
+export type StatsConfig = z.infer<typeof StatsConfigSchema>;
+
 /** Map trimming mode to score threshold */
 export const TRIM_THRESHOLDS: Record<string, number> = {
   conservative: 20,
@@ -149,9 +165,67 @@ export const ContextFileSchema = z.object({
 
   /** Smart tool output trimming configuration */
   trimming: TrimmingConfigSchema.default({}),
+
+  /** Token stats tracking configuration */
+  stats: StatsConfigSchema.default({}),
 });
 
 export type ContextFile = z.infer<typeof ContextFileSchema>;
+
+// ---------------------------------------------------------------------------
+// Token Stats (tracked per session, persisted in session file)
+// ---------------------------------------------------------------------------
+
+export const TokenStatsSchema = z.object({
+  /** Total tokens saved by selective rule injection (all rules minus loaded rules) */
+  tokensSkippedBySelection: z.number().default(0),
+
+  /** Total tokens of rules actually injected into the system prompt */
+  tokensInjected: z.number().default(0),
+
+  /** Total tokens trimmed from conversation history (tool outputs) */
+  tokensTrimmedFromHistory: z.number().default(0),
+
+  /** Total tokens trimmed from stale <carly-rules> blocks in history */
+  tokensTrimmedCarlyBlocks: z.number().default(0),
+
+  /** Number of prompts processed */
+  promptsProcessed: z.number().default(0),
+
+  /** Baseline: tokens that would be used if all rules loaded every prompt */
+  baselineTokensPerPrompt: z.number().default(0),
+});
+
+export type TokenStats = z.infer<typeof TokenStatsSchema>;
+
+// ---------------------------------------------------------------------------
+// Cumulative Stats (persisted in stats.json)
+// ---------------------------------------------------------------------------
+
+export const CumulativeSessionSummarySchema = z.object({
+  sessionId: z.string(),
+  date: z.string(),
+  tokensSaved: z.number(),
+  promptsProcessed: z.number(),
+});
+
+export type CumulativeSessionSummary = z.infer<typeof CumulativeSessionSummarySchema>;
+
+export const CumulativeStatsSchema = z.object({
+  version: z.number().default(1),
+  cumulative: z
+    .object({
+      tokensSkippedBySelection: z.number().default(0),
+      tokensInjected: z.number().default(0),
+      tokensTrimmedFromHistory: z.number().default(0),
+      tokensTrimmedCarlyBlocks: z.number().default(0),
+      totalTokensSaved: z.number().default(0),
+    })
+    .default({}),
+  sessions: z.array(CumulativeSessionSummarySchema).default([]),
+});
+
+export type CumulativeStats = z.infer<typeof CumulativeStatsSchema>;
 
 // ---------------------------------------------------------------------------
 // Session Override
@@ -195,6 +269,9 @@ export const SessionConfigSchema = z.object({
 
   /** Session-specific overrides */
   overrides: SessionOverrideSchema.default({}),
+
+  /** Cumulative token savings stats for this session */
+  tokenStats: TokenStatsSchema.default({}),
 });
 
 export type SessionConfig = z.infer<typeof SessionConfigSchema>;

@@ -75,7 +75,10 @@ export function formatRules(loaded: LoadedRules): string {
   // 4. DEVMODE instruction
   if (loaded.devmode) {
     const statsInfo = loaded.injectionStats
-      ? `\nToken Efficiency: ${loaded.injectionStats.rulesThisPrompt} rules this prompt | ${loaded.injectionStats.totalRulesSession} total session | avg ${loaded.injectionStats.avgRulesPerPrompt}/prompt over ${loaded.injectionStats.totalPromptsSession} prompts`
+      ? `\nToken Efficiency: ${loaded.injectionStats.rulesThisPrompt} rules this prompt | avg ${loaded.injectionStats.avgRulesPerPrompt}/prompt over ${loaded.injectionStats.totalPromptsSession} prompts`
+      : "";
+    const savingsInfo = loaded.tokenSavings
+      ? `\nToken Savings: ~${loaded.tokenSavings.totalSaved.toLocaleString()} tokens saved this session (selection: ~${loaded.tokenSavings.skippedBySelection.toLocaleString()}, trimming: ~${loaded.tokenSavings.trimmedFromHistory.toLocaleString()})`
       : "";
     sections.push(
       `DEVMODE: on
@@ -86,7 +89,7 @@ Domains Loaded: [list all loaded domains]
 Rules Applied: [specific rule numbers from each domain]
 Star-Commands: [any active star-commands]
 Bracket: [current context bracket]
-Matched Keywords: [keywords that triggered domains]${statsInfo}`
+Matched Keywords: [keywords that triggered domains]${statsInfo}${savingsInfo}`
     );
   } else {
     sections.push(
@@ -147,6 +150,38 @@ Matched Keywords: [keywords that triggered domains]${statsInfo}`
       .map((d) => `  ${domainLabel(d.name)} (recall: ${d.recall.join(", ")})`)
       .join("\n");
     sections.push(`AVAILABLE (not loaded):\n${available}`);
+  }
+
+  // 10. Token savings report (shown when *stats is active)
+  if (loaded.tokenSavings?.showFullReport) {
+    const s = loaded.tokenSavings;
+    const totalBaseline = s.baselinePerPrompt * s.promptsProcessed;
+    const savingsPercent = totalBaseline > 0
+      ? Math.round((s.totalSaved / (totalBaseline + s.tokensInjected)) * 100)
+      : 0;
+
+    sections.push(
+      `--- OPENCARLY TOKEN SAVINGS REPORT ---
+You MUST present this report to the user in a clear, formatted way.
+
+Session Stats:
+  Prompts processed: ${s.promptsProcessed}
+  Baseline (all rules every prompt): ~${s.baselinePerPrompt.toLocaleString()} tokens/prompt
+  Actual injected this session: ~${s.tokensInjected.toLocaleString()} tokens total
+
+Savings Breakdown:
+  Selective rule injection: ~${s.skippedBySelection.toLocaleString()} tokens saved
+    (Only loaded relevant domains instead of all ${s.baselinePerPrompt.toLocaleString()} baseline tokens each prompt)
+  History trimming (tool outputs): ~${s.trimmedFromHistory.toLocaleString()} tokens saved
+    (Stale file reads, bash outputs removed from conversation history)
+  History trimming (stale rules): ~${s.trimmedCarlyBlocks.toLocaleString()} tokens saved
+    (Old <carly-rules> blocks removed from history)
+
+Total Estimated Savings: ~${s.totalSaved.toLocaleString()} tokens (~${savingsPercent}% reduction)
+
+Note: These are estimates based on ~4 chars per token. Actual token counts vary by model tokenizer.
+--- END REPORT ---`
+    );
   }
 
   // Wrap in XML tags
