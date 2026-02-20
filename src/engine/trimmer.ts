@@ -259,10 +259,12 @@ function buildTrimSummary(toolPart: ToolPart, tokensSaved: number): string {
 export interface TrimStats {
   /** Number of tool outputs trimmed */
   partsTrimmed: number;
-  /** Estimated tokens saved */
+  /** Estimated tokens saved from tool output trimming (excludes carly blocks) */
   tokensSaved: number;
   /** Number of carly-rules blocks stripped */
   carlyBlocksStripped: number;
+  /** Estimated tokens saved from carly-rules block removal */
+  carlyTokensSaved: number;
 }
 
 /**
@@ -285,6 +287,7 @@ export function trimMessageHistory(
     partsTrimmed: 0,
     tokensSaved: 0,
     carlyBlocksStripped: 0,
+    carlyTokensSaved: 0,
   };
 
   if (!config.enabled) return stats;
@@ -313,10 +316,9 @@ export function trimMessageHistory(
             .trim();
           const after = textPart.text.length;
           if (after < before) {
+            const carlyTokens = estimateTokens(" ".repeat(before - after));
             stats.carlyBlocksStripped++;
-            stats.tokensSaved += estimateTokens(
-              " ".repeat(before - after)
-            );
+            stats.carlyTokensSaved += carlyTokens;
           }
         }
         continue;

@@ -192,6 +192,9 @@ export const TokenStatsSchema = z.object({
   /** Number of prompts processed */
   promptsProcessed: z.number().default(0),
 
+  /** Number of rules injected across all prompts */
+  rulesInjected: z.number().default(0),
+
   /** Baseline: tokens that would be used if all rules loaded every prompt */
   baselineTokensPerPrompt: z.number().default(0),
 });
@@ -207,6 +210,11 @@ export const CumulativeSessionSummarySchema = z.object({
   date: z.string(),
   tokensSaved: z.number(),
   promptsProcessed: z.number(),
+  tokensSkippedBySelection: z.number().default(0),
+  tokensTrimmedFromHistory: z.number().default(0),
+  tokensTrimmedCarlyBlocks: z.number().default(0),
+  tokensInjected: z.number().default(0),
+  rulesInjected: z.number().default(0),
 });
 
 export type CumulativeSessionSummary = z.infer<typeof CumulativeSessionSummarySchema>;

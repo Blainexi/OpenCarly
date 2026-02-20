@@ -13,7 +13,9 @@ import {
   type SessionConfig,
   type Manifest,
   type CumulativeStats,
+  type CumulativeSessionSummary,
   type StatsConfig,
+  type TokenStats,
 } from "../config/schema";
 
 const SESSIONS_DIR = "sessions";
@@ -249,13 +251,7 @@ interface SessionFileData {
   id: string;
   started: string;
   promptCount: number;
-  tokenStats: {
-    tokensSkippedBySelection: number;
-    tokensInjected: number;
-    tokensTrimmedFromHistory: number;
-    tokensTrimmedCarlyBlocks: number;
-    totalTokensSaved: number;
-  };
+  tokenStats: TokenStats;
 }
 
 interface SessionFile {
@@ -276,7 +272,7 @@ function getSessionFiles(sessionsDir: string): SessionFile[] {
     }));
 }
 
-function calculateTokensSaved(tokenStats: SessionFileData["tokenStats"]): number {
+function calculateTokensSaved(tokenStats: TokenStats): number {
   return (
     tokenStats.tokensSkippedBySelection +
     tokenStats.tokensTrimmedFromHistory +
@@ -296,7 +292,10 @@ function calculateCumulativeStats(
   };
 
   for (const session of sessions) {
-    cumulative.tokensSkippedBySelection += session.tokensSaved || 0;
+    cumulative.tokensSkippedBySelection += session.tokensSkippedBySelection || 0;
+    cumulative.tokensTrimmedFromHistory += session.tokensTrimmedFromHistory || 0;
+    cumulative.tokensTrimmedCarlyBlocks += session.tokensTrimmedCarlyBlocks || 0;
+    cumulative.tokensInjected += session.tokensInjected || 0;
     cumulative.totalTokensSaved += session.tokensSaved || 0;
   }
 
@@ -374,6 +373,11 @@ export function loadCumulativeStats(configPath: string): CumulativeStats {
           date: sessionData.started,
           tokensSaved: calculateTokensSaved(sessionData.tokenStats),
           promptsProcessed: sessionData.promptCount || 0,
+          tokensSkippedBySelection: sessionData.tokenStats.tokensSkippedBySelection || 0,
+          tokensTrimmedFromHistory: sessionData.tokenStats.tokensTrimmedFromHistory || 0,
+          tokensTrimmedCarlyBlocks: sessionData.tokenStats.tokensTrimmedCarlyBlocks || 0,
+          tokensInjected: sessionData.tokenStats.tokensInjected || 0,
+          rulesInjected: sessionData.tokenStats.rulesInjected || 0,
         });
       }
     }
@@ -410,43 +414,42 @@ export function updateCumulativeStats(
   session: SessionConfig
 ): CumulativeStats {
   const stats = loadCumulativeStats(configPath);
-
-  // Update cumulative totals
-  stats.cumulative.tokensSkippedBySelection +=
-    session.tokenStats.tokensSkippedBySelection;
-  stats.cumulative.tokensInjected += session.tokenStats.tokensInjected;
-  stats.cumulative.tokensTrimmedFromHistory +=
-    session.tokenStats.tokensTrimmedFromHistory;
-  stats.cumulative.tokensTrimmedCarlyBlocks +=
-    session.tokenStats.tokensTrimmedCarlyBlocks;
-  stats.cumulative.totalTokensSaved =
-    stats.cumulative.tokensSkippedBySelection +
-    stats.cumulative.tokensTrimmedFromHistory +
-    stats.cumulative.tokensTrimmedCarlyBlocks;
-
-  // Calculate tokens saved for this session
-  const sessionTokensSaved =
-    session.tokenStats.tokensSkippedBySelection +
-    session.tokenStats.tokensTrimmedFromHistory +
-    session.tokenStats.tokensTrimmedCarlyBlocks;
-
-  // Update or add current session in the list
-  const existingIdx = stats.sessions.findIndex(
-    (s) => s.sessionId === session.id
-  );
-  const sessionSummary = {
+  
+  const tokensSaved = calculateTokensSaved(session.tokenStats);
+  const existingIndex = stats.sessions.findIndex(s => s.sessionId === session.id);
+  
+  const summary: CumulativeSessionSummary = {
     sessionId: session.id,
     date: session.started,
-    tokensSaved: sessionTokensSaved,
+    tokensSaved,
     promptsProcessed: session.tokenStats.promptsProcessed,
+    tokensSkippedBySelection: session.tokenStats.tokensSkippedBySelection,
+    tokensTrimmedFromHistory: session.tokenStats.tokensTrimmedFromHistory,
+    tokensTrimmedCarlyBlocks: session.tokenStats.tokensTrimmedCarlyBlocks,
+    tokensInjected: session.tokenStats.tokensInjected,
+    rulesInjected: session.tokenStats.rulesInjected || 0,
   };
-
-  if (existingIdx >= 0) {
-    stats.sessions[existingIdx] = sessionSummary;
+  
+  if (existingIndex >= 0) {
+    stats.sessions[existingIndex] = summary;
   } else {
-    stats.sessions.push(sessionSummary);
+    stats.sessions.push(summary);
   }
-
+  
+  stats.cumulative.tokensSkippedBySelection = 0;
+  stats.cumulative.tokensTrimmedFromHistory = 0;
+  stats.cumulative.tokensTrimmedCarlyBlocks = 0;
+  stats.cumulative.tokensInjected = 0;
+  stats.cumulative.totalTokensSaved = 0;
+  
+  for (const s of stats.sessions) {
+    stats.cumulative.tokensSkippedBySelection += s.tokensSkippedBySelection || 0;
+    stats.cumulative.tokensTrimmedFromHistory += s.tokensTrimmedFromHistory || 0;
+    stats.cumulative.tokensTrimmedCarlyBlocks += s.tokensTrimmedCarlyBlocks || 0;
+    stats.cumulative.tokensInjected += s.tokensInjected || 0;
+    stats.cumulative.totalTokensSaved += s.tokensSaved;
+  }
+  
   saveCumulativeStats(configPath, stats);
   return stats;
 }
@@ -485,19 +488,18 @@ export function filterSessionsByDuration(
   }
 
   let filteredSessions = stats.sessions;
-  let filteredTotal = stats.cumulative.totalTokensSaved;
 
   if (cutoff !== null) {
     filteredSessions = stats.sessions.filter((s) => {
       const sessionTime = new Date(s.date).getTime();
       return sessionTime >= cutoff!;
     });
-
-    filteredTotal = filteredSessions.reduce(
-      (sum, s) => sum + s.tokensSaved,
-      0
-    );
   }
+
+  const filteredTotal = filteredSessions.reduce(
+    (sum, s) => sum + (s.tokensSaved || 0),
+    0
+  );
 
   return {
     filteredSessions,

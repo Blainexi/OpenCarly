@@ -49,6 +49,11 @@ interface PluginState {
   baselineTokensPerPrompt: number;
   /** Cumulative stats from all sessions (loaded from stats.json) */
   cumulativeStats: CumulativeStats;
+  /**
+   * When user invokes *stats, store a preformatted report here keyed by sessionID.
+   * experimental.chat.messages.transform will emit it as a synthetic assistant message.
+   */
+  pendingStatsReportBySession: Map<string, string>;
 }
 
 // ---------------------------------------------------------------------------
@@ -193,11 +198,74 @@ ${recentSessions || "  (no previous sessions)"}
 `;
 }
 
+async function generateStatsReport(directoryContext: string): Promise<string> {
+  const stats = loadCumulativeStats(directoryContext);
+  const currentSessionSummary = stats.sessions[stats.sessions.length - 1];
+  
+  let currentTokenStats = {
+    tokensSkippedBySelection: 0,
+    tokensTrimmedFromHistory: 0,
+    tokensTrimmedCarlyBlocks: 0,
+    tokensInjected: 0,
+  };
+  
+  if (currentSessionSummary?.sessionId) {
+    const sessionPath = `${directoryContext}/.opencarly/sessions/${currentSessionSummary.sessionId}.json`;
+    try {
+      const fs = await import("fs");
+      if (fs.existsSync(sessionPath)) {
+        const sessionData = JSON.parse(await fs.promises.readFile(sessionPath, "utf-8"));
+        currentTokenStats = {
+          tokensSkippedBySelection: sessionData.tokenStats?.tokensSkippedBySelection || 0,
+          tokensTrimmedFromHistory: sessionData.tokenStats?.tokensTrimmedFromHistory || 0,
+          tokensTrimmedCarlyBlocks: sessionData.tokenStats?.tokensTrimmedCarlyBlocks || 0,
+          tokensInjected: sessionData.tokenStats?.tokensInjected || 0,
+        };
+      }
+    } catch {
+      // Ignore
+    }
+  }
+
+  const formatNumber = (n: number) => {
+    if (n >= 1000000) return `${(n / 1000000).toFixed(1)}M`;
+    if (n >= 1000) return `${(n / 1000).toFixed(1)}K`;
+    return n.toString();
+  };
+
+  const historyTrimmed = currentTokenStats.tokensTrimmedFromHistory + currentTokenStats.tokensTrimmedCarlyBlocks;
+
+  let output = `# OPENCARLY TOKEN SAVINGS REPORT\n\n`;
+  output += `## CURRENT SESSION\n`;
+  output += `| Metric | Value |\n|--------|-------|\n`;
+  output += `| Prompts processed | ${currentSessionSummary?.promptsProcessed || 0} |\n`;
+  output += `| Tokens saved | ${formatNumber(currentSessionSummary?.tokensSaved || 0)} |\n`;
+  output += `| - Selective rule injection | ${formatNumber(currentTokenStats.tokensSkippedBySelection)} |\n`;
+  output += `| - History trimming | ${formatNumber(historyTrimmed)} |\n\n`;
+
+  output += `## ALL-TIME\n`;
+  output += `| Metric | Value |\n|--------|-------|\n`;
+  output += `| Total tokens saved | ${formatNumber(stats.cumulative.totalTokensSaved)} |\n`;
+  output += `| Sessions | ${stats.sessions.length} |\n`;
+  output += `| Average per session | ${formatNumber(Math.round(stats.cumulative.totalTokensSaved / (stats.sessions.length || 1)))} |\n\n`;
+
+  output += `## SESSION HISTORY\n`;
+  for (const session of stats.sessions.slice().reverse()) {
+    output += `- ${session.date?.split("T")[0] || "Unknown"}: ${formatNumber(session.tokensSaved)} tokens (${session.promptsProcessed} prompts)\n`;
+  }
+
+  return output;
+}
+
 // Plugin entry point
 // ---------------------------------------------------------------------------
 
 export const OpenCarly: Plugin = async ({ directory, client }) => {
   const log = createLogger(client as Parameters<typeof createLogger>[0]);
+
+  // Capture for use in event hook (client/directory not available in event hook)
+  const clientContext = client;
+  const directoryContext = directory;
 
   // Discover config
   const discovery = discoverConfig(directory);
@@ -259,6 +327,7 @@ export const OpenCarly: Plugin = async ({ directory, client }) => {
     activeSessionID: null,
     baselineTokensPerPrompt,
     cumulativeStats,
+    pendingStatsReportBySession: new Map(),
   };
 
   // Clean stale sessions on startup
@@ -286,46 +355,79 @@ export const OpenCarly: Plugin = async ({ directory, client }) => {
 
       // Intercept *stats command - bypass AI, read and output directly
       if (event.type === "message.updated") {
-        const message = (event as unknown as { properties?: { message?: { role?: string; content?: string } } }).properties?.message;
-        if (message?.role === "user" && message.content?.includes("*stats")) {
-          const stats = loadCumulativeStats(directory);
-          const currentSession = stats.sessions[stats.sessions.length - 1];
+        const sessionId = (event as unknown as { properties?: { info?: { sessionID?: string } } }).properties?.info?.sessionID;
+        
+        if (!sessionId || !clientContext) return;
 
-          const formatNumber = (n: number) => {
-            if (n >= 1000000) return `${(n / 1000000).toFixed(1)}M`;
-            if (n >= 1000) return `${(n / 1000).toFixed(1)}K`;
-            return n.toString();
-          };
+        // Debug: log sessionId
+        try {
+          const fs = await import("fs");
+          await fs.promises.appendFile(`${directoryContext}/.opencarly/debug2.log`, `sessionId: ${sessionId}\n`);
+        } catch {}
 
-          let output = `# OPENCARLY TOKEN SAVINGS REPORT\n\n`;
-          output += `## CURRENT SESSION\n`;
-          output += `| Metric | Value |\n|--------|-------|\n`;
-          output += `| Prompts processed | ${currentSession?.promptsProcessed || 0} |\n`;
-          output += `| Tokens saved | ${formatNumber(currentSession?.tokensSaved || 0)} |\n`;
-          output += `| - Selective rule injection | ${formatNumber(currentSession?.tokensSaved || 0)} |\n`;
-          output += `| - History trimming | 0 |\n\n`;
-
-          output += `## ALL-TIME\n`;
-          output += `| Metric | Value |\n|--------|-------|\n`;
-          output += `| Total tokens saved | ${formatNumber(stats.cumulative.totalTokensSaved)} |\n`;
-          output += `| Sessions | ${stats.sessions.length} |\n`;
-          output += `| Average per session | ${formatNumber(Math.round(stats.cumulative.totalTokensSaved / (stats.sessions.length || 1)))} |\n\n`;
-
-          output += `## SESSION HISTORY\n`;
-          for (const session of stats.sessions.slice().reverse()) {
-            output += `- ${session.date?.split("T")[0] || "Unknown"}: ${formatNumber(session.tokensSaved)} tokens (${session.promptsProcessed} prompts)\n`;
+        // Try to get session with messages via API
+        let lastUserMessage = "";
+        try {
+          const sessionResponse = await clientContext.session.get({ path: { id: sessionId } });
+          const sessionData = (sessionResponse as { data?: { messages?: unknown[] } }).data;
+          
+          // Debug: log session response
+          try {
+            const fs = await import("fs");
+            await fs.promises.appendFile(`${directoryContext}/.opencarly/debug2.log`, `sessionResponse: ${JSON.stringify(sessionResponse)}\n`);
+          } catch {}
+          
+          if (sessionData && sessionData.messages && Array.isArray(sessionData.messages)) {
+            for (let i = sessionData.messages.length - 1; i >= 0; i--) {
+              const msg = sessionData.messages[i] as { role?: string; content?: string; text?: string };
+              if (msg.role === "user") {
+                lastUserMessage = msg.content || msg.text || "";
+                break;
+              }
+            }
           }
-
-          const sessionId = (event as unknown as { session_id?: string }).session_id;
-          if (sessionId) {
-            await client.session.prompt({
-              path: { id: sessionId },
-              body: {
-                parts: [{ type: "text", text: output }],
-              },
-            });
+        } catch (e) {
+          // Debug: log error
+          try {
+            const fs = await import("fs");
+            await fs.promises.appendFile(`${directoryContext}/.opencarly/debug2.log`, `error: ${e}\n`);
+          } catch {}
+          // Fall back to reading file
+          try {
+            const fs = await import("fs");
+            const sessionPath = `${directoryContext}/.opencarly/sessions/ses_${sessionId.replace("ses_", "")}.json`;
+            if (fs.existsSync(sessionPath)) {
+              const sessionData = JSON.parse(await fs.promises.readFile(sessionPath, "utf-8"));
+              lastUserMessage = sessionData.title || "";
+            }
+          } catch {
+            // Ignore
           }
         }
+
+        // Only output stats if user explicitly requested it
+        if (!lastUserMessage.includes("*stats")) {
+          try {
+            const fs = await import("fs");
+            await fs.promises.appendFile(`${directoryContext}/.opencarly/debug2.log`, `lastUserMessage: "${lastUserMessage}" - NO *stats found\n`);
+          } catch {}
+          return;
+        }
+        
+        // Debug: *stats found
+        try {
+          const fs = await import("fs");
+          await fs.promises.appendFile(`${directoryContext}/.opencarly/debug2.log`, `*stats FOUND - outputting stats\n`);
+        } catch {}
+
+        const output = await generateStatsReport(directoryContext);
+
+        await clientContext.session.prompt({
+          path: { id: sessionId },
+          body: {
+            parts: [{ type: "text", text: output }],
+          },
+        });
       }
     },
 
@@ -412,6 +514,7 @@ export const OpenCarly: Plugin = async ({ directory, client }) => {
         tokensTrimmedFromHistory: 0,
         tokensTrimmedCarlyBlocks: 0,
         promptsProcessed: 0,
+        rulesInjected: 0,
         baselineTokensPerPrompt: state.baselineTokensPerPrompt,
       };
 
@@ -459,12 +562,14 @@ export const OpenCarly: Plugin = async ({ directory, client }) => {
       tokenStats.tokensInjected += tokensInjectedThisPrompt;
       tokenStats.tokensSkippedBySelection += tokensSkippedThisPrompt;
       tokenStats.promptsProcessed += 1;
+      tokenStats.rulesInjected = (tokenStats.rulesInjected || 0) + totalRulesThisPrompt;
 
       // Update session
       if (session) {
         session.tokenStats = tokenStats;
         try {
           saveSession(discovery.configPath, session);
+          state.cumulativeStats = updateCumulativeStats(discovery.configPath, session);
         } catch {
           // Non-critical
         }
@@ -473,12 +578,10 @@ export const OpenCarly: Plugin = async ({ directory, client }) => {
       // Attach injection stats for DEVMODE display
       loaded.injectionStats = {
         rulesThisPrompt: totalRulesThisPrompt,
-        totalRulesSession: tokenStats.promptsProcessed > 0
-          ? Math.round(tokenStats.tokensInjected / Math.max(1, tokensInjectedThisPrompt)) * totalRulesThisPrompt
-          : totalRulesThisPrompt,
+        totalRulesSession: tokenStats.rulesInjected || totalRulesThisPrompt,
         totalPromptsSession: tokenStats.promptsProcessed,
         avgRulesPerPrompt: tokenStats.promptsProcessed > 0
-          ? Math.round((tokenStats.tokensInjected / tokenStats.promptsProcessed) / Math.max(1, tokensInjectedThisPrompt / totalRulesThisPrompt))
+          ? Math.round((tokenStats.rulesInjected || 0) / tokenStats.promptsProcessed)
           : totalRulesThisPrompt,
       };
 
@@ -505,8 +608,7 @@ export const OpenCarly: Plugin = async ({ directory, client }) => {
       const formatted = formatRules(loaded);
       output.system.push(formatted);
 
-      // If *stats command was used, inject the report directly into system prompt
-      // This ensures it displays regardless of AI following rules or Plan Mode
+      // If *stats command was used, build the report
       if (showFullReport && session) {
         const filtered = filterSessionsByDuration(
           state.cumulativeStats,
@@ -517,7 +619,9 @@ export const OpenCarly: Plugin = async ({ directory, client }) => {
           state.baselineTokensPerPrompt,
           filtered
         );
-        output.system.push(report);
+        // Queue the report to be emitted as a synthetic assistant message
+        // in experimental.chat.messages.transform (visible to the user, no AI tokens)
+        state.pendingStatsReportBySession.set(sessionID, report);
       }
 
       // Persist session with updated stats
@@ -538,6 +642,18 @@ export const OpenCarly: Plugin = async ({ directory, client }) => {
     // experimental.chat.messages.transform: smart tool output trimming
     // -----------------------------------------------------------------
     "experimental.chat.messages.transform": async (_input, output) => {
+      // If there is a pending *stats report for the active session, emit it now
+      if (state.activeSessionID) {
+        const pending = state.pendingStatsReportBySession.get(state.activeSessionID);
+        if (pending) {
+          (output.messages as unknown as any[]).push({
+            role: "assistant",
+            parts: [{ type: "text", text: pending }],
+          });
+          state.pendingStatsReportBySession.delete(state.activeSessionID);
+        }
+      }
+
       const trimConfig = state.config.context.trimming;
 
       const trimStats = trimMessageHistory(
@@ -552,18 +668,10 @@ export const OpenCarly: Plugin = async ({ directory, client }) => {
 
         if (session) {
           session.tokenStats.tokensTrimmedFromHistory += trimStats.tokensSaved;
-          session.tokenStats.tokensTrimmedCarlyBlocks +=
-            trimStats.carlyBlocksStripped > 0
-              ? estimateTokens("<carly-rules>...</carly-rules>") * trimStats.carlyBlocksStripped
-              : 0;
+          session.tokenStats.tokensTrimmedCarlyBlocks += trimStats.carlyTokensSaved;
 
           try {
             saveSession(discovery.configPath, session);
-            // Update cumulative stats on every prompt
-            state.cumulativeStats = updateCumulativeStats(
-              discovery.configPath,
-              session
-            );
           } catch {
             // Non-critical
           }
@@ -575,6 +683,17 @@ export const OpenCarly: Plugin = async ({ directory, client }) => {
           carlyBlocksStripped: trimStats.carlyBlocksStripped,
           mode: trimConfig.mode,
         });
+      }
+
+      // Always update cumulative stats after messages transform completes
+      const sessionID = state.activeSessionID;
+      const session = sessionID ? state.sessions.get(sessionID) : undefined;
+      if (session) {
+        try {
+          state.cumulativeStats = updateCumulativeStats(discovery.configPath, session);
+        } catch {
+          // Non-critical
+        }
       }
     },
 
@@ -594,35 +713,7 @@ export const OpenCarly: Plugin = async ({ directory, client }) => {
         description: "Get OpenCarly token savings statistics",
         args: {},
         execute: async (_args: Record<string, never>, context: { directory: string }): Promise<string> => {
-          const stats = loadCumulativeStats(context.directory);
-          const currentSession = stats.sessions[stats.sessions.length - 1];
-
-          const formatNumber = (n: number) => {
-            if (n >= 1000000) return `${(n / 1000000).toFixed(1)}M`;
-            if (n >= 1000) return `${(n / 1000).toFixed(1)}K`;
-            return n.toString();
-          };
-
-          let output = `# OPENCARLY TOKEN SAVINGS REPORT\n\n`;
-          output += `## CURRENT SESSION\n`;
-          output += `| Metric | Value |\n|--------|-------|\n`;
-          output += `| Prompts processed | ${currentSession?.promptsProcessed || 0} |\n`;
-          output += `| Tokens saved | ${formatNumber(currentSession?.tokensSaved || 0)} |\n`;
-          output += `| - Selective rule injection | ${formatNumber(currentSession?.tokensSaved || 0)} |\n`;
-          output += `| - History trimming | 0 |\n\n`;
-
-          output += `## ALL-TIME\n`;
-          output += `| Metric | Value |\n|--------|-------|\n`;
-          output += `| Total tokens saved | ${formatNumber(stats.cumulative.totalTokensSaved)} |\n`;
-          output += `| Sessions | ${stats.sessions.length} |\n`;
-          output += `| Average per session | ${formatNumber(Math.round(stats.cumulative.totalTokensSaved / (stats.sessions.length || 1)))} |\n\n`;
-
-          output += `## SESSION HISTORY\n`;
-          for (const session of stats.sessions.slice().reverse()) {
-            output += `- ${session.date?.split("T")[0] || "Unknown"}: ${formatNumber(session.tokensSaved)} tokens (${session.promptsProcessed} prompts)\n`;
-          }
-
-          return output;
+          return generateStatsReport(context.directory);
         },
       }),
     },

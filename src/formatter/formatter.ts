@@ -155,10 +155,9 @@ Matched Keywords: [keywords that triggered domains]${statsInfo}${savingsInfo}`
   // 10. Token savings report (shown when *stats is active)
   if (loaded.tokenSavings?.showFullReport) {
     const s = loaded.tokenSavings;
-    const totalBaseline = s.baselinePerPrompt * s.promptsProcessed;
-    const savingsPercent = totalBaseline > 0
-      ? Math.round((s.totalSaved / (totalBaseline + s.tokensInjected)) * 100)
-      : 0;
+    const savingsPercent = Math.round(
+      (s.totalSaved / Math.max(1, s.tokensInjected + s.totalSaved)) * 100
+    );
 
     sections.push(
       `--- OPENCARLY TOKEN SAVINGS REPORT ---
