@@ -310,15 +310,16 @@ export function trimMessageHistory(
       if (part.type === "text") {
         const textPart = part as TextPart;
         if (textPart.text.includes("<carly-rules>")) {
-          const before = textPart.text.length;
+          const tokensBefore = estimateTokens(textPart.text);
+          const textBefore = textPart.text;
           textPart.text = textPart.text
             .replace(/<carly-rules>[\s\S]*?<\/carly-rules>/g, "")
             .trim();
-          const after = textPart.text.length;
-          if (after < before) {
-            const carlyTokens = estimateTokens(" ".repeat(before - after));
+          
+          if (textPart.text !== textBefore) {
+            const tokensAfter = estimateTokens(textPart.text);
             stats.carlyBlocksStripped++;
-            stats.carlyTokensSaved += carlyTokens;
+            stats.carlyTokensSaved += Math.max(0, tokensBefore - tokensAfter);
           }
         }
         continue;

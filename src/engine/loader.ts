@@ -134,14 +134,14 @@ export function calculateBaseline(config: CarlyConfig): number {
     }
   }
 
-  // All bracket rules (pick the longest bracket)
+  // All bracket rules
   const { context } = config;
   const bracketRuleLengths = [
     context.brackets.fresh.rules.join("").length,
     context.brackets.moderate.rules.join("").length,
     context.brackets.depleted.rules.join("").length,
   ];
-  totalRuleText += Math.max(...bracketRuleLengths, 0);
+  totalRuleText += bracketRuleLengths.reduce((a, b) => a + b, 0);
 
   // Convert chars to estimated tokens
   return Math.ceil(totalRuleText / 4);
