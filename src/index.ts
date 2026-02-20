@@ -255,23 +255,39 @@ async function generateStatsReport(configPath: string, activeSessionId?: string)
   const historyTrimmed = currentTokenStats.tokensTrimmedFromHistory + currentTokenStats.tokensTrimmedCarlyBlocks;
 
   let output = `# OPENCARLY TOKEN SAVINGS REPORT\n\n`;
-  output += `## CURRENT SESSION\n`;
-  output += `| Metric | Value |\n|--------|-------|\n`;
-  output += `| Prompts processed | ${currentSessionSummary?.promptsProcessed || 0} |\n`;
-  output += `| Tokens saved | ${formatNumber(currentSessionSummary?.tokensSaved || 0)} |\n`;
-  output += `| - Selective rule injection | ${formatNumber(currentTokenStats.tokensSkippedBySelection)} |\n`;
-  output += `| - History trimming | ${formatNumber(historyTrimmed)} |\n\n`;
+  
+  output += `## 📊 CURRENT SESSION\n`;
+  output += `**Prompts Processed**: ${currentSessionSummary?.promptsProcessed || 0}\n`;
+  output += `**Total Tokens Saved**: ${formatNumber(currentSessionSummary?.tokensSaved || 0)}\n\n`;
+  output += `### Savings Breakdown\n`;
+  output += `| Category | Tokens Saved |\n|---|---|\n`;
+  output += `| **Selective Rule Injection** | ${formatNumber(currentTokenStats.tokensSkippedBySelection)} |\n`;
+  output += `| **History Trimming (Total)** | ${formatNumber(historyTrimmed)} |\n`;
+  output += `| ↳ *Tool Output Trimming* | ${formatNumber(currentTokenStats.tokensTrimmedFromHistory)} |\n`;
+  output += `| ↳ *Stale Carly-Blocks* | ${formatNumber(currentTokenStats.tokensTrimmedCarlyBlocks)} |\n\n`;
 
-  output += `## ALL-TIME\n`;
-  output += `| Metric | Value |\n|--------|-------|\n`;
-  output += `| Total tokens saved | ${formatNumber(stats.cumulative.totalTokensSaved)} |\n`;
-  output += `| Sessions | ${stats.sessions.length} |\n`;
-  output += `| Average per session | ${formatNumber(Math.round(stats.cumulative.totalTokensSaved / (stats.sessions.length || 1)))} |\n\n`;
-
-  output += `## SESSION HISTORY\n`;
-  for (const session of stats.sessions.slice().reverse()) {
-    output += `- ${session.date?.split("T")[0] || "Unknown"}: ${formatNumber(session.tokensSaved)} tokens (${session.promptsProcessed} prompts)\n`;
+  output += `## 🕒 RECENT SESSION HISTORY\n`;
+  output += `| Date | Session ID | Prompts | Tokens Saved |\n|---|---|---|---|\n`;
+  for (const session of stats.sessions.slice().reverse().slice(0, 10)) {
+    const shortId = session.sessionId.replace("ses_", "").slice(0, 8) + "...";
+    output += `| ${session.date?.split("T")[0] || "Unknown"} | \`${shortId}\` | ${session.promptsProcessed} | ${formatNumber(session.tokensSaved || 0)} |\n`;
   }
+  if (stats.sessions.length > 10) {
+    output += `| ... | ... | ... | ... |\n`;
+  }
+  output += `\n`;
+
+  const totalPrompts = stats.sessions.reduce((sum, s) => sum + (s.promptsProcessed || 0), 0);
+
+  output += `## 🌎 ALL-TIME TOTALS\n`;
+  output += `| Metric | Value |\n|--------|-------|\n`;
+  output += `| **Total Tokens Saved** | **${formatNumber(stats.cumulative.totalTokensSaved)}** |\n`;
+  output += `| - From Selective Injection | ${formatNumber(stats.cumulative.tokensSkippedBySelection)} |\n`;
+  output += `| - From History Trimming | ${formatNumber(stats.cumulative.tokensTrimmedFromHistory + stats.cumulative.tokensTrimmedCarlyBlocks)} |\n`;
+  output += `| Total Tokens Injected | ${formatNumber(stats.cumulative.tokensInjected)} |\n`;
+  output += `| Total Prompts Processed | ${totalPrompts} |\n`;
+  output += `| Total Sessions | ${stats.sessions.length} |\n`;
+  output += `| Avg Savings / Session | ${formatNumber(Math.round(stats.cumulative.totalTokensSaved / Math.max(1, stats.sessions.length)))} |\n\n`;
 
   return output;
 }
