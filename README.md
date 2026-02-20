@@ -4,7 +4,7 @@
 
 OpenCarly is an intelligent plugin for [OpenCode](https://github.com/opencode-ai/opencode) that dynamically manages your AI's context window. Instead of dumping all your rules, API guidelines, and project instructions into a single massive prompt, OpenCarly loads rules *only when they are relevant* and seamlessly trims them from the chat history when they aren't.
 
-This saves massive amounts of tokens, dramatically reduces your API costs, and keeps your AI laser-focused on the task at hand without being distracted by irrelevant guidelines.
+This saves massive amounts of tokens, dramatically reduces your API costs, and keeps your AI laser-focused on the task at hand without being distracted by irrelevant guidelines. Heavily inspired by similar plugin for Claude Code - CARL.
 
 ## 🚀 Features
 
