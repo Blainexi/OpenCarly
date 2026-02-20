@@ -379,9 +379,9 @@ export const OpenCarly: Plugin = async ({ directory, client }) => {
           
           if (sessionData && sessionData.messages && Array.isArray(sessionData.messages)) {
             for (let i = sessionData.messages.length - 1; i >= 0; i--) {
-              const msg = sessionData.messages[i] as { role?: string; content?: string; text?: string };
+              const msg = sessionData.messages[i] as { role?: string; content?: string; text?: string; parts?: Array<{ type: string; [key: string]: unknown }> };
               if (msg.role === "user") {
-                lastUserMessage = msg.content || msg.text || "";
+                lastUserMessage = msg.parts ? extractPromptText(msg.parts) : (msg.content || msg.text || "");
                 break;
               }
             }
