@@ -382,21 +382,21 @@ export const OpenCarly: Plugin = async ({ directory, client }) => {
           await fs.promises.appendFile(`${directoryContext}/.opencarly/debug2.log`, `sessionId: ${sessionId}\n`);
         } catch {}
 
-        // Try to get session with messages via API
+        // Try to get session messages via API
         let lastUserMessage = "";
         try {
-          const sessionResponse = await clientContext.session.get({ path: { id: sessionId } });
-          const sessionData = (sessionResponse as { data?: { messages?: unknown[] } }).data;
+          const messagesResponse = await clientContext.session.messages({ path: { id: sessionId } });
+          const messagesData = (messagesResponse as { data?: unknown[] }).data;
           
-          // Debug: log session response
+          // Debug: log messages response
           try {
             const fs = await import("fs");
-            await fs.promises.appendFile(`${directoryContext}/.opencarly/debug2.log`, `sessionResponse: ${JSON.stringify(sessionResponse)}\n`);
+            await fs.promises.appendFile(`${directoryContext}/.opencarly/debug2.log`, `messagesResponse: ${JSON.stringify(messagesResponse)}\n`);
           } catch {}
           
-          if (sessionData && sessionData.messages && Array.isArray(sessionData.messages)) {
-            for (let i = sessionData.messages.length - 1; i >= 0; i--) {
-              const msg = sessionData.messages[i] as { role?: string; content?: string; text?: string; parts?: Array<{ type: string; [key: string]: unknown }> };
+          if (messagesData && Array.isArray(messagesData)) {
+            for (let i = messagesData.length - 1; i >= 0; i--) {
+              const msg = messagesData[i] as { role?: string; content?: string; text?: string; parts?: Array<{ type: string; [key: string]: unknown }> };
               if (msg.role === "user") {
                 lastUserMessage = msg.parts ? extractPromptText(msg.parts) : (msg.content || msg.text || "");
                 break;
