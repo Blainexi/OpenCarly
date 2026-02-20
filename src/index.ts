@@ -198,9 +198,12 @@ ${recentSessions || "  (no previous sessions)"}
 `;
 }
 
-async function generateStatsReport(directoryContext: string): Promise<string> {
+async function generateStatsReport(directoryContext: string, activeSessionId?: string): Promise<string> {
   const stats = loadCumulativeStats(directoryContext);
-  const currentSessionSummary = stats.sessions[stats.sessions.length - 1];
+  
+  let currentSessionSummary = activeSessionId 
+    ? stats.sessions.find(s => s.sessionId === activeSessionId)
+    : stats.sessions[stats.sessions.length - 1];
   
   let currentTokenStats = {
     tokensSkippedBySelection: 0,
@@ -209,21 +212,35 @@ async function generateStatsReport(directoryContext: string): Promise<string> {
     tokensInjected: 0,
   };
   
-  if (currentSessionSummary?.sessionId) {
-    const sessionPath = `${directoryContext}/.opencarly/sessions/${currentSessionSummary.sessionId}.json`;
+  const targetSessionId = activeSessionId || currentSessionSummary?.sessionId;
+  
+  if (targetSessionId) {
+    const sessionPath = `${directoryContext}/.opencarly/sessions/${targetSessionId}.json`;
     try {
       const fs = await import("fs");
-      if (fs.existsSync(sessionPath)) {
-        const sessionData = JSON.parse(await fs.promises.readFile(sessionPath, "utf-8"));
-        currentTokenStats = {
-          tokensSkippedBySelection: sessionData.tokenStats?.tokensSkippedBySelection || 0,
-          tokensTrimmedFromHistory: sessionData.tokenStats?.tokensTrimmedFromHistory || 0,
-          tokensTrimmedCarlyBlocks: sessionData.tokenStats?.tokensTrimmedCarlyBlocks || 0,
-          tokensInjected: sessionData.tokenStats?.tokensInjected || 0,
+      const sessionData = JSON.parse(await fs.promises.readFile(sessionPath, "utf-8"));
+      currentTokenStats = {
+        tokensSkippedBySelection: sessionData.tokenStats?.tokensSkippedBySelection || 0,
+        tokensTrimmedFromHistory: sessionData.tokenStats?.tokensTrimmedFromHistory || 0,
+        tokensTrimmedCarlyBlocks: sessionData.tokenStats?.tokensTrimmedCarlyBlocks || 0,
+        tokensInjected: sessionData.tokenStats?.tokensInjected || 0,
+      };
+      
+      if (!currentSessionSummary) {
+        currentSessionSummary = {
+          sessionId: targetSessionId,
+          date: sessionData.started || new Date().toISOString(),
+          tokensSaved: (currentTokenStats.tokensSkippedBySelection + currentTokenStats.tokensTrimmedFromHistory + currentTokenStats.tokensTrimmedCarlyBlocks),
+          promptsProcessed: sessionData.promptCount || 0,
+          tokensSkippedBySelection: currentTokenStats.tokensSkippedBySelection,
+          tokensTrimmedFromHistory: currentTokenStats.tokensTrimmedFromHistory,
+          tokensTrimmedCarlyBlocks: currentTokenStats.tokensTrimmedCarlyBlocks,
+          tokensInjected: currentTokenStats.tokensInjected,
+          rulesInjected: sessionData.tokenStats?.rulesInjected || 0,
         };
       }
     } catch {
-      // Ignore
+      // Ignore file not found or invalid JSON
     }
   }
 
@@ -405,11 +422,12 @@ export const OpenCarly: Plugin = async ({ directory, client }) => {
           }
         }
 
-        // Only output stats if user explicitly requested it
-        if (!lastUserMessage.includes("*stats")) {
+        // Only intercept if the user's message is exactly "*stats"
+        const cleanedMessage = lastUserMessage.trim().toLowerCase();
+        if (cleanedMessage !== "*stats") {
           try {
             const fs = await import("fs");
-            await fs.promises.appendFile(`${directoryContext}/.opencarly/debug2.log`, `lastUserMessage: "${lastUserMessage}" - NO *stats found\n`);
+            await fs.promises.appendFile(`${directoryContext}/.opencarly/debug2.log`, `lastUserMessage: "${lastUserMessage}" - Not an exact *stats match\n`);
           } catch {}
           return;
         }
@@ -427,7 +445,7 @@ export const OpenCarly: Plugin = async ({ directory, client }) => {
           // Ignore if there's nothing to abort
         }
 
-        const output = await generateStatsReport(directoryContext);
+        const output = await generateStatsReport(directoryContext, sessionId);
 
         await clientContext.session.prompt({
           path: { id: sessionId },
@@ -721,7 +739,7 @@ export const OpenCarly: Plugin = async ({ directory, client }) => {
         description: "Get OpenCarly token savings statistics",
         args: {},
         execute: async (_args: Record<string, never>, context: { directory: string }): Promise<string> => {
-          return generateStatsReport(context.directory);
+          return generateStatsReport(context.directory, state.activeSessionID || undefined);
         },
       }),
     },
