@@ -673,7 +673,7 @@ export const OpenCarly: Plugin = async ({ directory, client }) => {
         const pending = state.pendingStatsReportBySession.get(state.activeSessionID);
         if (pending) {
           (output.messages as unknown as any[]).push({
-            role: "assistant",
+            info: { role: "assistant" },
             parts: [{ type: "text", text: pending }],
           });
           state.pendingStatsReportBySession.delete(state.activeSessionID);
