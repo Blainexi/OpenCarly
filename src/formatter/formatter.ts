@@ -152,37 +152,6 @@ Matched Keywords: [keywords that triggered domains]${statsInfo}${savingsInfo}`
     sections.push(`AVAILABLE (not loaded):\n${available}`);
   }
 
-  // 10. Token savings report (shown when *stats is active)
-  if (loaded.tokenSavings?.showFullReport) {
-    const s = loaded.tokenSavings;
-    const savingsPercent = Math.round(
-      (s.totalSaved / Math.max(1, s.tokensInjected + s.totalSaved)) * 100
-    );
-
-    sections.push(
-      `--- OPENCARLY TOKEN SAVINGS REPORT ---
-You MUST present this report to the user in a clear, formatted way.
-
-Session Stats:
-  Prompts processed: ${s.promptsProcessed}
-  Baseline (all rules every prompt): ~${s.baselinePerPrompt.toLocaleString()} tokens/prompt
-  Actual injected this session: ~${s.tokensInjected.toLocaleString()} tokens total
-
-Savings Breakdown:
-  Selective rule injection: ~${s.skippedBySelection.toLocaleString()} tokens saved
-    (Only loaded relevant domains instead of all ${s.baselinePerPrompt.toLocaleString()} baseline tokens each prompt)
-  History trimming (tool outputs): ~${s.trimmedFromHistory.toLocaleString()} tokens saved
-    (Stale file reads, bash outputs removed from conversation history)
-  History trimming (stale rules): ~${s.trimmedCarlyBlocks.toLocaleString()} tokens saved
-    (Old <carly-rules> blocks removed from history)
-
-Total Estimated Savings: ~${s.totalSaved.toLocaleString()} tokens (~${savingsPercent}% reduction)
-
-Note: These are estimates based on ~4 chars per token. Actual token counts vary by model tokenizer.
---- END REPORT ---`
-    );
-  }
-
   // Wrap in XML tags
   const body = sections.join("\n\n");
   return `<carly-rules>\n${body}\n</carly-rules>`;

@@ -28,7 +28,6 @@ import {
   cleanStaleSessions,
   loadCumulativeStats,
   updateCumulativeStats,
-  filterSessionsByDuration,
   clearAllStats,
   type CumulativeStats,
 } from "./session/session";
@@ -50,11 +49,6 @@ interface PluginState {
   baselineTokensPerPrompt: number;
   /** Cumulative stats from all sessions (loaded from stats.json) */
   cumulativeStats: CumulativeStats;
-  /**
-   * When user invokes *stats, store a preformatted report here keyed by sessionID.
-   * experimental.chat.messages.transform will emit it as a synthetic assistant message.
-   */
-  pendingStatsReportBySession: Map<string, string>;
 }
 
 // ---------------------------------------------------------------------------
@@ -132,71 +126,6 @@ function estimateRuleTokens(rules: Record<string, string[]>): number {
  */
 function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
-}
-
-/**
- * Build a token savings report string for direct injection into system prompt.
- * This ensures the report displays reliably regardless of Plan Mode or AI following rules.
- */
-function buildTokenReport(
-  stats: {
-    tokensSkippedBySelection: number;
-    tokensInjected: number;
-    tokensTrimmedFromHistory: number;
-    tokensTrimmedCarlyBlocks: number;
-    promptsProcessed: number;
-    baselineTokensPerPrompt: number;
-  },
-  _baselinePerPrompt: number,
-  filtered: {
-    filteredSessions: Array<{
-      sessionId: string;
-      date: string;
-      tokensSaved: number;
-      promptsProcessed: number;
-    }>;
-    filteredTotal: number;
-    durationLabel: string;
-  }
-): string {
-  // Current session stats
-  const totalSaved =
-    stats.tokensSkippedBySelection +
-    stats.tokensTrimmedFromHistory +
-    stats.tokensTrimmedCarlyBlocks;
-
-  // Format session history (most recent first, last 10)
-  const recentSessions = filtered.filteredSessions
-    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-    .slice(0, 10)
-    .map((s) => {
-      const date = new Date(s.date).toISOString().split("T")[0];
-      return `  ${s.sessionId.slice(0, 12)}... | ${date} | ~${s.tokensSaved.toLocaleString()} tokens | ${s.promptsProcessed} prompts`;
-    })
-    .join("\n");
-
-  return `
-============================================================
-OPENCARLY TOKEN SAVINGS REPORT
-============================================================
-
-CURRENT SESSION:
-  Prompts processed: ${stats.promptsProcessed}
-  Tokens saved this session: ~${totalSaved.toLocaleString()}
-  - Selective rule injection: ~${stats.tokensSkippedBySelection.toLocaleString()}
-  - History trimming: ~${(
-    stats.tokensTrimmedFromHistory + stats.tokensTrimmedCarlyBlocks
-  ).toLocaleString()}
-
-ALL-TIME (filtered by: ${filtered.durationLabel}, ${filtered.filteredSessions.length} sessions):
-  Total tokens saved: ~${filtered.filteredTotal.toLocaleString()}
-  Average per session: ~${Math.round(filtered.filteredTotal / Math.max(1, filtered.filteredSessions.length)).toLocaleString()}
-
-SESSION HISTORY:
-${recentSessions || "  (no previous sessions)"}
-
-============================================================
-`;
 }
 
 async function generateStatsReport(configPath: string, activeSessionId?: string): Promise<string> {
@@ -358,7 +287,6 @@ export const OpenCarly: Plugin = async ({ directory, client }) => {
     activeSessionID: null,
     baselineTokensPerPrompt,
     cumulativeStats,
-    pendingStatsReportBySession: new Map(),
   };
 
   // Clean stale sessions on startup
@@ -539,44 +467,9 @@ export const OpenCarly: Plugin = async ({ directory, client }) => {
           : totalRulesThisPrompt,
       };
 
-      // Attach token savings for *stats and DEVMODE
-      const totalSaved =
-        tokenStats.tokensSkippedBySelection +
-        tokenStats.tokensTrimmedFromHistory +
-        tokenStats.tokensTrimmedCarlyBlocks;
-
-      const showFullReport = matchResult.starCommands.includes("stats");
-
-      loaded.tokenSavings = {
-        skippedBySelection: tokenStats.tokensSkippedBySelection,
-        trimmedFromHistory: tokenStats.tokensTrimmedFromHistory,
-        trimmedCarlyBlocks: tokenStats.tokensTrimmedCarlyBlocks,
-        tokensInjected: tokenStats.tokensInjected,
-        baselinePerPrompt: state.baselineTokensPerPrompt,
-        totalSaved,
-        promptsProcessed: tokenStats.promptsProcessed,
-        showFullReport,
-      };
-
       // Format and inject
       const formatted = formatRules(loaded);
       output.system.push(formatted);
-
-      // If *stats command was used, build the report
-      if (showFullReport && session) {
-        const filtered = filterSessionsByDuration(
-          state.cumulativeStats,
-          state.config.context.stats
-        );
-        const report = buildTokenReport(
-          tokenStats,
-          state.baselineTokensPerPrompt,
-          filtered
-        );
-        // Queue the report to be emitted as a synthetic assistant message
-        // in experimental.chat.messages.transform (visible to the user, no AI tokens)
-        state.pendingStatsReportBySession.set(sessionID, report);
-      }
 
       // Persist session with updated stats
       if (session) {
@@ -596,18 +489,6 @@ export const OpenCarly: Plugin = async ({ directory, client }) => {
     // experimental.chat.messages.transform: smart tool output trimming
     // -----------------------------------------------------------------
     "experimental.chat.messages.transform": async (_input, output) => {
-      // If there is a pending *stats report for the active session, emit it now
-      if (state.activeSessionID) {
-        const pending = state.pendingStatsReportBySession.get(state.activeSessionID);
-        if (pending) {
-          (output.messages as unknown as any[]).push({
-            info: { role: "assistant" },
-            parts: [{ type: "text", text: pending }],
-          });
-          state.pendingStatsReportBySession.delete(state.activeSessionID);
-        }
-      }
-
       const trimConfig = state.config.context.trimming;
 
       const trimStats = trimMessageHistory(

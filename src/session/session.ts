@@ -14,7 +14,6 @@ import {
   type Manifest,
   type CumulativeStats,
   type CumulativeSessionSummary,
-  type StatsConfig,
   type TokenStats,
 } from "../config/schema";
 
@@ -476,60 +475,6 @@ export function updateCumulativeStats(
   
   saveCumulativeStats(configPath, stats);
   return stats;
-}
-
-/**
- * Filter sessions by duration based on stats config.
- */
-export function filterSessionsByDuration(
-  stats: CumulativeStats,
-  config: StatsConfig
-): {
-  filteredSessions: typeof stats.sessions;
-  filteredTotal: number;
-  durationLabel: string;
-} {
-  const now = Date.now();
-  const msPerDay = 24 * 60 * 60 * 1000;
-
-  let cutoff: number | null = null;
-  let label = "all sessions";
-
-  switch (config.trackDuration) {
-    case "week":
-      cutoff = now - 7 * msPerDay;
-      label = "last 7 days";
-      break;
-    case "month":
-      cutoff = now - 30 * msPerDay;
-      label = "last 30 days";
-      break;
-    case "all":
-    default:
-      cutoff = null;
-      label = "all sessions";
-      break;
-  }
-
-  let filteredSessions = stats.sessions;
-
-  if (cutoff !== null) {
-    filteredSessions = stats.sessions.filter((s) => {
-      const sessionTime = new Date(s.date).getTime();
-      return sessionTime >= cutoff!;
-    });
-  }
-
-  const filteredTotal = filteredSessions.reduce(
-    (sum, s) => sum + (s.tokensSaved || 0),
-    0
-  );
-
-  return {
-    filteredSessions,
-    filteredTotal,
-    durationLabel: label,
-  };
 }
 
 export type { CumulativeStats } from "../config/schema";
