@@ -84,5 +84,12 @@
       "Execute the stats tool and present its output to the user",
       "Do NOT manually read files or format the output yourself"
     ]
+  },
+  "clearstats": {
+    "description": "Clear all OpenCarly token savings statistics",
+    "rules": [
+      "Execute the clear_stats tool to reset the token savings count to zero",
+      "Confirm to the user that the stats have been cleared"
+    ]
   }
 }

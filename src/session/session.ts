@@ -406,6 +406,30 @@ export function saveCumulativeStats(
 }
 
 /**
+ * Clear all stats by removing stats.json and all session files.
+ */
+export function clearAllStats(configPath: string): void {
+  const statsPath = getStatsFilePath(configPath);
+  if (fs.existsSync(statsPath)) {
+    try {
+      fs.unlinkSync(statsPath);
+    } catch {}
+  }
+
+  const sessionsDir = getSessionsDir(configPath);
+  if (fs.existsSync(sessionsDir)) {
+    const files = fs.readdirSync(sessionsDir);
+    for (const file of files) {
+      if (file.endsWith(".json")) {
+        try {
+          fs.unlinkSync(path.join(sessionsDir, file));
+        } catch {}
+      }
+    }
+  }
+}
+
+/**
  * Update cumulative stats with the current session's stats.
  * Called on every prompt to keep stats current.
  */

@@ -29,6 +29,7 @@ import {
   loadCumulativeStats,
   updateCumulativeStats,
   filterSessionsByDuration,
+  clearAllStats,
   type CumulativeStats,
 } from "./session/session";
 
@@ -651,6 +652,39 @@ export const OpenCarly: Plugin = async ({ directory, client }) => {
         args: {},
         execute: async (_args: Record<string, never>, _context: { directory: string }): Promise<string> => {
           return generateStatsReport(discovery.configPath, state.activeSessionID || undefined);
+        },
+      }),
+      clear_stats: tool({
+        description: "Clear all OpenCarly token savings statistics",
+        args: {},
+        execute: async (_args: Record<string, never>, _context: { directory: string }): Promise<string> => {
+          clearAllStats(discovery.configPath);
+          
+          state.cumulativeStats = {
+            version: 1,
+            cumulative: {
+              tokensSkippedBySelection: 0,
+              tokensInjected: 0,
+              tokensTrimmedFromHistory: 0,
+              tokensTrimmedCarlyBlocks: 0,
+              totalTokensSaved: 0,
+            },
+            sessions: [],
+          };
+          
+          for (const session of state.sessions.values()) {
+            session.tokenStats = {
+              tokensSkippedBySelection: 0,
+              tokensInjected: 0,
+              tokensTrimmedFromHistory: 0,
+              tokensTrimmedCarlyBlocks: 0,
+              promptsProcessed: 0,
+              rulesInjected: 0,
+              baselineTokensPerPrompt: state.baselineTokensPerPrompt,
+            };
+          }
+          
+          return "All OpenCarly token savings statistics have been successfully reset to zero.";
         },
       }),
     },

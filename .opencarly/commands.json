@@ -81,11 +81,15 @@
   "stats": {
     "description": "Show OpenCarly token savings report for the current session",
     "rules": [
-      "Present the OPENCARLY TOKEN SAVINGS REPORT from the carly-rules block to the user",
-      "Format it clearly with a table or structured layout",
-      "Explain each category briefly: what selective injection saves, what history trimming saves",
-      "If total savings are low, explain that savings increase in longer sessions with more tool usage",
-      "Note that these are estimates based on ~4 chars per token"
+      "Execute the stats tool and present its output to the user",
+      "Do NOT manually read files or format the output yourself"
+    ]
+  },
+  "clearstats": {
+    "description": "Clear all OpenCarly token savings statistics",
+    "rules": [
+      "Execute the clear_stats tool to reset the token savings count to zero",
+      "Confirm to the user that the stats have been cleared"
     ]
   }
 }
