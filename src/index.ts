@@ -420,11 +420,19 @@ export const OpenCarly: Plugin = async ({ directory, client }) => {
           await fs.promises.appendFile(`${directoryContext}/.opencarly/debug2.log`, `*stats FOUND - outputting stats\n`);
         } catch {}
 
+        // Abort the ongoing AI generation for the *stats command
+        try {
+          await clientContext.session.abort({ path: { id: sessionId } });
+        } catch {
+          // Ignore if there's nothing to abort
+        }
+
         const output = await generateStatsReport(directoryContext);
 
         await clientContext.session.prompt({
           path: { id: sessionId },
           body: {
+            noReply: true,
             parts: [{ type: "text", text: output }],
           },
         });
