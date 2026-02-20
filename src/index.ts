@@ -198,8 +198,8 @@ ${recentSessions || "  (no previous sessions)"}
 `;
 }
 
-async function generateStatsReport(directoryContext: string, activeSessionId?: string): Promise<string> {
-  const stats = loadCumulativeStats(directoryContext);
+async function generateStatsReport(configPath: string, activeSessionId?: string): Promise<string> {
+  const stats = loadCumulativeStats(configPath);
   
   let currentSessionSummary = activeSessionId 
     ? stats.sessions.find(s => s.sessionId === activeSessionId)
@@ -215,7 +215,8 @@ async function generateStatsReport(directoryContext: string, activeSessionId?: s
   const targetSessionId = activeSessionId || currentSessionSummary?.sessionId;
   
   if (targetSessionId) {
-    const sessionPath = `${directoryContext}/.opencarly/sessions/${targetSessionId}.json`;
+    const path = await import("path");
+    const sessionPath = path.join(configPath, "sessions", `${targetSessionId}.json`);
     try {
       const fs = await import("fs");
       const sessionData = JSON.parse(await fs.promises.readFile(sessionPath, "utf-8"));
@@ -279,10 +280,6 @@ async function generateStatsReport(directoryContext: string, activeSessionId?: s
 
 export const OpenCarly: Plugin = async ({ directory, client }) => {
   const log = createLogger(client as Parameters<typeof createLogger>[0]);
-
-  // Capture for use in event hook (client/directory not available in event hook)
-  const clientContext = client;
-  const directoryContext = directory;
 
   // Discover config
   const discovery = discoverConfig(directory);
@@ -361,104 +358,18 @@ export const OpenCarly: Plugin = async ({ directory, client }) => {
     // -----------------------------------------------------------------
     // Event hook: track session lifecycle and intercept commands
     // -----------------------------------------------------------------
-    event: async ({ event }) => {
-      if (event.type === "session.created") {
-        try {
-          cleanStaleSessions(discovery.configPath);
-        } catch {
-          // ignore
-        }
-      }
-
-      // Intercept *stats command - bypass AI, read and output directly
-      if (event.type === "message.updated") {
-        const sessionId = (event as unknown as { properties?: { info?: { sessionID?: string } } }).properties?.info?.sessionID;
-        
-        if (!sessionId || !clientContext) return;
-
-        // Debug: log sessionId
-        try {
-          const fs = await import("fs");
-          await fs.promises.appendFile(`${directoryContext}/.opencarly/debug2.log`, `sessionId: ${sessionId}\n`);
-        } catch {}
-
-        // Try to get session messages via API
-        let lastUserMessage = "";
-        try {
-          const messagesResponse = await clientContext.session.messages({ path: { id: sessionId } });
-          const messagesData = (messagesResponse as { data?: unknown[] }).data;
-          
-          // Debug: log messages response
-          try {
-            const fs = await import("fs");
-            await fs.promises.appendFile(`${directoryContext}/.opencarly/debug2.log`, `messagesResponse: ${JSON.stringify(messagesResponse)}\n`);
-          } catch {}
-          
-          if (messagesData && Array.isArray(messagesData)) {
-            for (let i = messagesData.length - 1; i >= 0; i--) {
-              const msg = messagesData[i] as { role?: string; content?: string; text?: string; parts?: Array<{ type: string; [key: string]: unknown }> };
-              if (msg.role === "user") {
-                lastUserMessage = msg.parts ? extractPromptText(msg.parts) : (msg.content || msg.text || "");
-                break;
-              }
+        event: async ({ event }) => {
+          if (event.type === "session.created") {
+            try {
+              cleanStaleSessions(discovery.configPath);
+            } catch {
+              // ignore
             }
           }
-        } catch (e) {
-          // Debug: log error
-          try {
-            const fs = await import("fs");
-            await fs.promises.appendFile(`${directoryContext}/.opencarly/debug2.log`, `error: ${e}\n`);
-          } catch {}
-          // Fall back to reading file
-          try {
-            const fs = await import("fs");
-            const sessionPath = `${directoryContext}/.opencarly/sessions/ses_${sessionId.replace("ses_", "")}.json`;
-            if (fs.existsSync(sessionPath)) {
-              const sessionData = JSON.parse(await fs.promises.readFile(sessionPath, "utf-8"));
-              lastUserMessage = sessionData.title || "";
-            }
-          } catch {
-            // Ignore
-          }
-        }
-
-        // Only intercept if the user's message is exactly "*stats"
-        const cleanedMessage = lastUserMessage.trim().toLowerCase();
-        if (cleanedMessage !== "*stats") {
-          try {
-            const fs = await import("fs");
-            await fs.promises.appendFile(`${directoryContext}/.opencarly/debug2.log`, `lastUserMessage: "${lastUserMessage}" - Not an exact *stats match\n`);
-          } catch {}
-          return;
-        }
-        
-        // Debug: *stats found
-        try {
-          const fs = await import("fs");
-          await fs.promises.appendFile(`${directoryContext}/.opencarly/debug2.log`, `*stats FOUND - outputting stats\n`);
-        } catch {}
-
-        // Abort the ongoing AI generation for the *stats command
-        try {
-          await clientContext.session.abort({ path: { id: sessionId } });
-        } catch {
-          // Ignore if there's nothing to abort
-        }
-
-        const output = await generateStatsReport(directoryContext, sessionId);
-
-        await clientContext.session.prompt({
-          path: { id: sessionId },
-          body: {
-            noReply: true,
-            parts: [{ type: "text", text: output }],
-          },
-        });
-      }
-    },
-
-    // -----------------------------------------------------------------
-    // chat.message: scan prompt, detect keywords + star-commands
+        },
+    
+        // -----------------------------------------------------------------
+        // chat.message: scan prompt, detect keywords + star-commands
     // -----------------------------------------------------------------
     "chat.message": async (input, output) => {
       const { sessionID } = input;
@@ -738,8 +649,8 @@ export const OpenCarly: Plugin = async ({ directory, client }) => {
       stats: tool({
         description: "Get OpenCarly token savings statistics",
         args: {},
-        execute: async (_args: Record<string, never>, context: { directory: string }): Promise<string> => {
-          return generateStatsReport(context.directory, state.activeSessionID || undefined);
+        execute: async (_args: Record<string, never>, _context: { directory: string }): Promise<string> => {
+          return generateStatsReport(discovery.configPath, state.activeSessionID || undefined);
         },
       }),
     },
