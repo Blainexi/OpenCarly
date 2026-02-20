@@ -81,8 +81,9 @@
   "stats": {
     "description": "Show OpenCarly token savings report for the current session",
     "rules": [
-      "Execute the stats tool and present its output to the user",
-      "Do NOT manually read files or format the output yourself"
+      "Execute the stats tool to get the token savings report",
+      "You MUST output the exact raw markdown table returned by the tool word-for-word",
+      "Do NOT summarize, converse, or add any preamble/postamble. Only output the raw tool result."
     ]
   },
   "clearstats": {
