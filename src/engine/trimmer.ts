@@ -124,6 +124,20 @@ class TrimContext {
         op.messageIndex > messageIndex
     );
   }
+
+  /** Get unique file paths operated on in the last N messages */
+  getRecentFiles(totalMessages: number, lastN: number): string[] {
+    const recentPaths = new Set<string>();
+    const startIdx = Math.max(0, totalMessages - lastN);
+    
+    for (const [filePath, ops] of this.fileOps.entries()) {
+      if (ops.some(op => op.messageIndex >= startIdx)) {
+        recentPaths.add(filePath);
+      }
+    }
+    
+    return Array.from(recentPaths);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -265,6 +279,8 @@ export interface TrimStats {
   carlyBlocksStripped: number;
   /** Estimated tokens saved from carly-rules block removal */
   carlyTokensSaved: number;
+  /** Files read or edited in the last 5 turns */
+  activeFiles: string[];
 }
 
 /**
@@ -283,21 +299,22 @@ export function trimMessageHistory(
   messages: TransformMessage[],
   config: TrimmingConfig
 ): TrimStats {
+  // Step 1: Build context for cross-referencing file operations
+  const context = new TrimContext(messages);
+  const totalMessages = messages.length;
+
   const stats: TrimStats = {
     partsTrimmed: 0,
     tokensSaved: 0,
     carlyBlocksStripped: 0,
     carlyTokensSaved: 0,
+    activeFiles: context.getRecentFiles(totalMessages, 5),
   };
 
   if (!config.enabled) return stats;
 
   const threshold = TRIM_THRESHOLDS[config.mode] ?? 40;
-  const totalMessages = messages.length;
   const protectedStart = Math.max(0, totalMessages - config.preserveLastN);
-
-  // Step 1: Build context for cross-referencing file operations
-  const context = new TrimContext(messages);
 
   // Step 2: Process each message
   for (let mi = 0; mi < totalMessages; mi++) {
@@ -309,7 +326,7 @@ export function trimMessageHistory(
       // --- Strip <carly-rules> from text parts (all messages) ---
       if (part.type === "text") {
         const textPart = part as TextPart;
-        if (textPart.text.includes("<carly-rules>")) {
+        if (typeof textPart.text === "string" && textPart.text.includes("<carly-rules>")) {
           const tokensBefore = estimateTokens(textPart.text);
           const textBefore = textPart.text;
           textPart.text = textPart.text

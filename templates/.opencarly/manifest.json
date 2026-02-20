@@ -15,6 +15,7 @@
       "alwaysOn": false,
       "recall": ["fix", "bug", "implement", "refactor", "write code", "function", "class", "component", "feature", "build", "create", "add", "update", "change", "modify", "code"],
       "exclude": [],
+      "paths": ["*.ts", "*.js", "*.tsx", "*.jsx", "src/**/*"],
       "file": "domains/development.md"
     },
     "testing": {
@@ -22,6 +23,7 @@
       "alwaysOn": false,
       "recall": ["test", "testing", "TDD", "coverage", "spec", "jest", "vitest", "unit test", "integration test", "e2e"],
       "exclude": [],
+      "paths": ["*.test.*", "*.spec.*", "tests/**/*", "__tests__/**/*"],
       "file": "domains/testing.md"
     },
     "security": {

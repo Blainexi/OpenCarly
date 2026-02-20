@@ -104,11 +104,19 @@ Matched Keywords: [keywords that triggered domains]${statsInfo}${savingsInfo}`
     summaryLines.push(`  [${domainLabel(name)}] always_on (${rules.length} rules)`);
   }
   for (const [name, rules] of Object.entries(loaded.matched)) {
-    const keywords = loaded.matchedKeywords[name] || [];
-    const kwStr = keywords.map((k) => `"${k}"`).join(", ");
-    summaryLines.push(
-      `  [${domainLabel(name)}] matched: ${kwStr} (${rules.length} rules)`
-    );
+    const paths = loaded.matchedPaths[name] || [];
+    if (paths.length > 0) {
+      const pathStr = paths.map((p) => `"${p}"`).join(", ");
+      summaryLines.push(
+        `  [${domainLabel(name)}] matched path: ${pathStr} (${rules.length} rules)`
+      );
+    } else {
+      const keywords = loaded.matchedKeywords[name] || [];
+      const kwStr = keywords.map((k) => `"${k}"`).join(", ");
+      summaryLines.push(
+        `  [${domainLabel(name)}] matched: ${kwStr} (${rules.length} rules)`
+      );
+    }
   }
 
   if (summaryLines.length > 0) {

@@ -1,42 +1,56 @@
 {
   "version": 1,
   "cumulative": {
-    "tokensSkippedBySelection": 10049433,
-    "tokensInjected": 7261,
-    "tokensTrimmedFromHistory": 5266939,
+    "tokensSkippedBySelection": 20726,
+    "tokensInjected": 5058,
+    "tokensTrimmedFromHistory": 4897437,
     "tokensTrimmedCarlyBlocks": 0,
-    "totalTokensSaved": 15316372
+    "totalTokensSaved": 4918163
   },
   "sessions": [
     {
-      "sessionId": "ses_38bc2a4ccffeYmceYt9Cp4WTgW",
-      "date": "2026-02-19T04:51:44.056Z",
-      "tokensSaved": 5288018,
-      "promptsProcessed": 26
+      "sessionId": "ses_387f9c45affedTtBx3a72wbT8W",
+      "date": "2026-02-19T22:30:00.368Z",
+      "tokensSaved": 104926,
+      "promptsProcessed": 1,
+      "tokensSkippedBySelection": 934,
+      "tokensTrimmedFromHistory": 103992,
+      "tokensTrimmedCarlyBlocks": 0,
+      "tokensInjected": 238,
+      "rulesInjected": 16
     },
     {
-      "sessionId": "ses_38bc768e5ffep7e3jthS1i71wa",
-      "date": "2026-02-19T04:46:31.714Z",
-      "tokensSaved": 1623,
-      "promptsProcessed": 2
+      "sessionId": "ses_38470067bfferNBKJ1P4FTZhxA",
+      "date": "2026-02-20T14:59:19.048Z",
+      "tokensSaved": 2772,
+      "promptsProcessed": 3,
+      "tokensSkippedBySelection": 2772,
+      "tokensTrimmedFromHistory": 0,
+      "tokensTrimmedCarlyBlocks": 0,
+      "tokensInjected": 744,
+      "rulesInjected": 51
     },
     {
-      "sessionId": "ses_38bc75385ffeXqFI31gfQrPEVq",
-      "date": "2026-02-19T04:46:37.180Z",
-      "tokensSaved": 796,
-      "promptsProcessed": 1
+      "sessionId": "ses_383b08550ffeOo9AAQkv4l63X1",
+      "date": "2026-02-20T18:28:29.494Z",
+      "tokensSaved": 4583176,
+      "promptsProcessed": 17,
+      "tokensSkippedBySelection": 16017,
+      "tokensTrimmedFromHistory": 4567159,
+      "tokensTrimmedCarlyBlocks": 0,
+      "tokensInjected": 3907,
+      "rulesInjected": 274
     },
     {
-      "sessionId": "ses_38c3bede8ffeo7eIqZeAvgR058",
-      "date": "2026-02-19T02:39:15.485Z",
-      "tokensSaved": 7663,
-      "promptsProcessed": 5
-    },
-    {
-      "sessionId": "ses_38ca50fc3ffeWNSTi4rCiJBugp",
-      "date": "2026-02-19T02:27:32.218Z",
-      "tokensSaved": 4782618,
-      "promptsProcessed": 29
+      "sessionId": "ses_3837e8349ffegKB0pRKq0nekOm",
+      "date": "2026-02-20T19:23:06.809Z",
+      "tokensSaved": 227289,
+      "promptsProcessed": 1,
+      "tokensSkippedBySelection": 1003,
+      "tokensTrimmedFromHistory": 226286,
+      "tokensTrimmedCarlyBlocks": 0,
+      "tokensInjected": 169,
+      "rulesInjected": 12
     }
   ]
 }

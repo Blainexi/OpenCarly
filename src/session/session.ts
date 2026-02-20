@@ -40,7 +40,9 @@ function getSessionsDir(configPath: string): string {
  * Get path to a specific session file.
  */
 function getSessionFilePath(configPath: string, sessionId: string): string {
-  return path.join(getSessionsDir(configPath), `${sessionId}.json`);
+  // Sanitize the sessionId to prevent path traversal
+  const safeId = sessionId.replace(/[^a-zA-Z0-9_-]/g, "");
+  return path.join(getSessionsDir(configPath), `${safeId}.json`);
 }
 
 /**
@@ -203,13 +205,13 @@ export function cleanStaleSessions(configPath: string): number {
       const lastActivity = new Date(session.lastActivity).getTime();
 
       if (lastActivity < cutoff) {
-        fs.unlinkSync(filePath);
+        fs.rmSync(filePath, { recursive: true, force: true });
         cleaned++;
       }
     } catch {
       // Remove corrupted files too
       try {
-        fs.unlinkSync(filePath);
+        fs.rmSync(filePath, { recursive: true, force: true });
         cleaned++;
       } catch {
         // ignore
@@ -273,9 +275,9 @@ function getSessionFiles(sessionsDir: string): SessionFile[] {
 
 function calculateTokensSaved(tokenStats: TokenStats): number {
   return (
-    tokenStats.tokensSkippedBySelection +
-    tokenStats.tokensTrimmedFromHistory +
-    tokenStats.tokensTrimmedCarlyBlocks
+    (tokenStats.tokensSkippedBySelection || 0) +
+    (tokenStats.tokensTrimmedFromHistory || 0) +
+    (tokenStats.tokensTrimmedCarlyBlocks || 0)
   );
 }
 
@@ -436,7 +438,14 @@ export function updateCumulativeStats(
   configPath: string,
   session: SessionConfig
 ): CumulativeStats {
-  const stats = loadCumulativeStats(configPath);
+  const statsPath = getStatsFilePath(configPath);
+  let stats: CumulativeStats;
+  try {
+    const raw = readJsonFileSafe(statsPath);
+    stats = raw ? CumulativeStatsSchema.parse(raw) : { version: 1, cumulative: { tokensSkippedBySelection: 0, tokensInjected: 0, tokensTrimmedFromHistory: 0, tokensTrimmedCarlyBlocks: 0, totalTokensSaved: 0 }, sessions: [] };
+  } catch {
+    stats = { version: 1, cumulative: { tokensSkippedBySelection: 0, tokensInjected: 0, tokensTrimmedFromHistory: 0, tokensTrimmedCarlyBlocks: 0, totalTokensSaved: 0 }, sessions: [] };
+  }
   
   const tokensSaved = calculateTokensSaved(session.tokenStats);
   const existingIndex = stats.sessions.findIndex(s => s.sessionId === session.id);
@@ -470,7 +479,7 @@ export function updateCumulativeStats(
     stats.cumulative.tokensTrimmedFromHistory += s.tokensTrimmedFromHistory || 0;
     stats.cumulative.tokensTrimmedCarlyBlocks += s.tokensTrimmedCarlyBlocks || 0;
     stats.cumulative.tokensInjected += s.tokensInjected || 0;
-    stats.cumulative.totalTokensSaved += s.tokensSaved;
+    stats.cumulative.totalTokensSaved += s.tokensSaved || 0;
   }
   
   saveCumulativeStats(configPath, stats);

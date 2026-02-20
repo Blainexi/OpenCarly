@@ -27,6 +27,9 @@ export const DomainConfigSchema = z.object({
   /** Keywords that prevent this domain from loading */
   exclude: z.array(z.string()).default([]),
 
+  /** File paths/globs that trigger this domain (e.g., ["*.tsx", "src/components/*"]) */
+  paths: z.array(z.string()).default([]),
+
   /** Path to the domain rule file, relative to .opencarly/ */
   file: z.string(),
 });
@@ -274,6 +277,9 @@ export const SessionConfigSchema = z.object({
 
   /** ISO timestamp of last activity */
   lastActivity: z.string(),
+
+  /** Files recently read or edited by tools in this session */
+  activeFiles: z.array(z.string()).default([]),
 
   /** Session-specific overrides */
   overrides: SessionOverrideSchema.default({}),

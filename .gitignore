@@ -5,3 +5,5 @@ bun.lockb
 .DS_Store
 *.Zone.Identifier
 .opencarly/sessions/
+.gemini/
+.opencarly/debug.log 

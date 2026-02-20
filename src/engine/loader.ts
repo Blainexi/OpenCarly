@@ -41,6 +41,9 @@ export interface LoadedRules {
   /** Keywords that triggered each matched domain */
   matchedKeywords: Record<string, string[]>;
 
+  /** File paths that triggered each matched domain */
+  matchedPaths: Record<string, string[]>;
+
   /** Domains excluded and why */
   excludedDomains: Record<string, string[]>;
 
@@ -171,6 +174,7 @@ export function loadRules(
     promptCount,
     bracketThreshold: bracket.threshold,
     matchedKeywords: matchResult.matched,
+    matchedPaths: matchResult.matchedPaths,
     excludedDomains: matchResult.excluded,
     globalExcluded: matchResult.globalExcluded,
     devmode: manifest.devmode,
@@ -202,6 +206,18 @@ export function loadRules(
       }
     }
   }
+  
+  // Load path-matched domain rules
+  for (const domainName of Object.keys(matchResult.matchedPaths)) {
+    const domain = manifest.domains[domainName];
+    if (domain) {
+      const rules = loadDomainRules(domainName, domain, configPath);
+      if (rules.length > 0) {
+        // We put them in loaded.matched to be injected alongside keyword-matched rules
+        loaded.matched[domainName] = rules;
+      }
+    }
+  }
 
   // Load star-command rules
   if (manifest.commands.state === "active" && matchResult.starCommands.length > 0) {
@@ -225,6 +241,7 @@ export function loadRules(
 
     // Skip if already matched or excluded
     if (matchResult.matched[name]) continue;
+    if (matchResult.matchedPaths[name]) continue;
     if (matchResult.excluded[name]) continue;
 
     if (domain.recall.length > 0) {

@@ -15,6 +15,9 @@ export interface MatchResult {
   /** Domains matched via recall keywords: { domainName: matchedKeywords[] } */
   matched: Record<string, string[]>;
 
+  /** Domains matched via file paths: { domainName: matchedPaths[] } */
+  matchedPaths: Record<string, string[]>;
+
   /** Domains excluded by per-domain exclusion: { domainName: excludingKeywords[] } */
   excluded: Record<string, string[]>;
 
@@ -32,24 +35,75 @@ export interface MatchResult {
 // Star-command detection
 // ---------------------------------------------------------------------------
 
-const STAR_COMMAND_REGEX = /\*([a-zA-Z]\w*)/g;
-
 /**
  * Detect star-commands in the prompt.
  * e.g. "*brief *dev explain this" -> ["brief", "dev"]
  */
 export function detectStarCommands(prompt: string): string[] {
   const commands: string[] = [];
-  let match: RegExpExecArray | null;
-
-  // Reset regex state
-  STAR_COMMAND_REGEX.lastIndex = 0;
-
-  while ((match = STAR_COMMAND_REGEX.exec(prompt)) !== null) {
+  
+  // Use matchAll to avoid global RegExp state mutation race conditions
+  const matches = prompt.matchAll(/\*([a-zA-Z]\w*)/g);
+  for (const match of matches) {
     commands.push(match[1].toLowerCase());
   }
 
   return [...new Set(commands)]; // deduplicate
+}
+
+// ---------------------------------------------------------------------------
+// Path and Glob Matching
+// ---------------------------------------------------------------------------
+
+const globRegexCache = new Map<string, RegExp>();
+
+function globToRegExp(glob: string): RegExp {
+  if (globRegexCache.has(glob)) return globRegexCache.get(glob)!;
+
+  let escaped = "";
+  for (let i = 0; i < glob.length; i++) {
+    const c = glob[i];
+    if (/[.+^${}()|[\]\\]/.test(c)) {
+      escaped += "\\" + c;
+    } else {
+      escaped += c;
+    }
+  }
+  const regexStr = "^" + escaped.replace(/\*\*/g, ".*").replace(/\*/g, "[^/]*").replace(/\?/g, ".") + "$";
+  const regex = new RegExp(regexStr);
+  globRegexCache.set(glob, regex);
+  return regex;
+}
+
+/**
+ * Check if a file path matches any of the given glob patterns.
+ */
+export function isPathMatch(filePath: string, patterns: string[]): boolean {
+  for (const pattern of patterns) {
+    if (globToRegExp(pattern).test(filePath)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Extracts possible file paths from a user prompt.
+ * Looks for words containing `/` or a file extension (like `.ts`).
+ */
+function extractPathsFromPrompt(prompt: string): string[] {
+  const words = prompt.split(/\s+/);
+  const paths: string[] = [];
+  
+  for (const word of words) {
+    // Strip trailing punctuation
+    const cleanWord = word.replace(/[.,;:!?)$'"]+$/, "").replace(/^['"(]+/, "");
+    if (cleanWord.includes("/") || /\.[a-z0-9]{1,4}$/i.test(cleanWord)) {
+      paths.push(cleanWord);
+    }
+  }
+  
+  return [...new Set(paths)];
 }
 
 // ---------------------------------------------------------------------------
@@ -71,9 +125,9 @@ function findMatchingKeywords(
     const keywordLower = keyword.toLowerCase().trim();
     if (keywordLower === "") continue;
 
-    // Escape regex special chars and do substring match
+    // Escape regex special chars and do boundary match
     const escaped = keywordLower.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    if (new RegExp(escaped).test(promptLower)) {
+    if (new RegExp(`(^|\\W)${escaped}($|\\W)`, "i").test(promptLower)) {
       matches.push(keyword);
     }
   }
@@ -96,9 +150,14 @@ function findMatchingKeywords(
  *    b. Check recall keywords
  * 4. Detect star-commands
  */
-export function matchDomains(prompt: string, manifest: Manifest): MatchResult {
+export function matchDomains(
+  prompt: string, 
+  manifest: Manifest, 
+  activeFiles: string[] = []
+): MatchResult {
   const result: MatchResult = {
     matched: {},
+    matchedPaths: {},
     excluded: {},
     globalExcluded: [],
     starCommands: [],
@@ -116,6 +175,10 @@ export function matchDomains(prompt: string, manifest: Manifest): MatchResult {
     }
   }
 
+  // Extract possible paths from user prompt and combine with activeFiles
+  const promptPaths = extractPathsFromPrompt(prompt);
+  const allActiveFiles = [...new Set([...activeFiles, ...promptPaths])];
+
   // 2-3. Process each domain
   for (const [name, domain] of Object.entries(manifest.domains)) {
     // Skip inactive domains
@@ -132,6 +195,22 @@ export function matchDomains(prompt: string, manifest: Manifest): MatchResult {
       const excludeMatches = findMatchingKeywords(prompt, domain.exclude);
       if (excludeMatches.length > 0) {
         result.excluded[name] = excludeMatches;
+        continue;
+      }
+    }
+
+    // Check file paths first
+    if (domain.paths && domain.paths.length > 0) {
+      const pathMatches: string[] = [];
+      for (const file of allActiveFiles) {
+        if (isPathMatch(file, domain.paths)) {
+          pathMatches.push(file);
+        }
+      }
+      
+      if (pathMatches.length > 0) {
+        result.matchedPaths[name] = pathMatches;
+        // Skip keyword recall check if path triggered it
         continue;
       }
     }
