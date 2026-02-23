@@ -11,3 +11,4 @@ These rules apply to every prompt, regardless of context.
 - When multiple approaches exist, briefly mention alternatives
 - Commit messages should be concise and describe the WHY, not the WHAT
 - Do not add comments that merely restate what the code does
+- ALWAYS prefer native tools (read, grep, glob, edit) over bash for standard file exploration. ONLY use bash with cat/grep/ls/sed when you specifically need piping, file metadata (ls -la), complex regex replacements, or match counting.
