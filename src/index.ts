@@ -594,6 +594,7 @@ export const OpenCarly: Plugin = async ({ directory, client }) => {
               rulesInjected: 0,
               baselineTokensPerPrompt: state.baselineTokensPerPrompt,
             };
+            if (session) await saveSession(discovery.configPath, session);
           }
           
           return "All OpenCarly token savings statistics have been successfully reset to zero.";
