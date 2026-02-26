@@ -110,8 +110,8 @@ function findMatchingKeywords(
 
     // Boundary match using lookarounds
     const escaped = keywordLower.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const prefix = /^\w/.test(keywordLower) ? "(?:^|\\W)" : "";
-    const suffix = /\w$/.test(keywordLower) ? "(?:$|\\W)" : "";
+    const prefix = "(?<=^|\\W)";
+    const suffix = "(?=\\W|$)";
     
     const regex = new RegExp(prefix + escaped + suffix, "i");
     if (regex.test(promptLower)) {
