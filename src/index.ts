@@ -520,7 +520,7 @@ export const OpenCarly: Plugin = async ({ directory, client }) => {
 
       if (session) {
         // Always update active files
-        session.activeFiles = trimStats.activeFiles;
+        session.activeFiles = [...new Set([...trimStats.activeFiles, ...(session.activeFiles || [])])].slice(0, 15);
 
         // Accumulate trim stats to the session
         if (trimStats.tokensSaved > 0 || trimStats.carlyBlocksStripped > 0) {
