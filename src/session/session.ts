@@ -115,12 +115,12 @@ export function getOrCreateSession(
 /**
  * Save a session to disk.
  */
-export function saveSession(
+export async function saveSession(
   configPath: string,
   session: SessionConfig
-): void {
+): Promise<void> {
   const filePath = getSessionFilePath(configPath, session.id);
-  fs.writeFileSync(filePath, JSON.stringify(session, null, 2), "utf-8");
+  await fs.promises.writeFile(filePath, JSON.stringify(session, null, 2), "utf-8");
 }
 
 // ---------------------------------------------------------------------------
@@ -430,22 +430,22 @@ export function loadCumulativeStats(
 /**
  * Save cumulative stats to stats.json.
  */
-export function saveCumulativeStats(
+export async function saveCumulativeStats(
   configPath: string,
   stats: CumulativeStats
-): void {
+): Promise<void> {
   const statsPath = getStatsFilePath(configPath);
-  fs.writeFileSync(statsPath, JSON.stringify(stats, null, 2), "utf-8");
+  await fs.promises.writeFile(statsPath, JSON.stringify(stats, null, 2), "utf-8");
 }
 
 /**
  * Clear all stats by removing stats.json and all session files.
  */
-export function clearAllStats(configPath: string): void {
+export async function clearAllStats(configPath: string): Promise<void> {
   const statsPath = getStatsFilePath(configPath);
   if (fs.existsSync(statsPath)) {
     try {
-      fs.unlinkSync(statsPath);
+      await fs.promises.unlink(statsPath);
     } catch {}
   }
 
@@ -455,7 +455,7 @@ export function clearAllStats(configPath: string): void {
     for (const file of files) {
       if (file.endsWith(".json")) {
         try {
-          fs.unlinkSync(path.join(sessionsDir, file));
+          await fs.promises.unlink(path.join(sessionsDir, file));
         } catch {}
       }
     }
@@ -466,11 +466,11 @@ export function clearAllStats(configPath: string): void {
  * Update cumulative stats with the current session's stats.
  * Called on every prompt to keep stats current.
  */
-export function updateCumulativeStats(
+export async function updateCumulativeStats(
   configPath: string,
   session: SessionConfig,
   trackDuration: "all" | "month" | "week" = "all"
-): CumulativeStats {
+): Promise<CumulativeStats> {
   const statsPath = getStatsFilePath(configPath);
   let stats: CumulativeStats;
   try {
@@ -553,7 +553,7 @@ export function updateCumulativeStats(
     stats.sessions = stats.sessions.slice(0, 100);
   }
   
-  saveCumulativeStats(configPath, stats);
+  await saveCumulativeStats(configPath, stats);
   return stats;
 }
 

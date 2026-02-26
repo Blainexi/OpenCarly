@@ -380,7 +380,7 @@ export const OpenCarly: Plugin = async ({ directory, client }) => {
 
       // Persist session
       try {
-        saveSession(discovery.configPath, currentSession);
+        await saveSession(discovery.configPath, currentSession);
       } catch {
         // Non-critical
       }
@@ -458,8 +458,8 @@ export const OpenCarly: Plugin = async ({ directory, client }) => {
       if (session) {
         session.tokenStats = tokenStats;
         try {
-          saveSession(discovery.configPath, session);
-          state.cumulativeStats = updateCumulativeStats(discovery.configPath, session, state.config.context.stats.trackDuration);
+          await saveSession(discovery.configPath, session);
+          state.cumulativeStats = await updateCumulativeStats(discovery.configPath, session, state.config.context.stats.trackDuration);
         } catch {
           // Non-critical
         }
@@ -493,7 +493,7 @@ export const OpenCarly: Plugin = async ({ directory, client }) => {
       // Persist session with updated stats
       if (session) {
         try {
-          saveSession(discovery.configPath, session);
+          await saveSession(discovery.configPath, session);
         } catch {
           // Non-critical
         }
@@ -536,8 +536,8 @@ export const OpenCarly: Plugin = async ({ directory, client }) => {
         }
 
         try {
-          saveSession(discovery.configPath, session);
-          state.cumulativeStats = updateCumulativeStats(discovery.configPath, session, state.config.context.stats.trackDuration);
+          await saveSession(discovery.configPath, session);
+          state.cumulativeStats = await updateCumulativeStats(discovery.configPath, session, state.config.context.stats.trackDuration);
         } catch {
           // Non-critical
         }
@@ -570,7 +570,7 @@ export const OpenCarly: Plugin = async ({ directory, client }) => {
         description: "Clear all OpenCarly token savings statistics",
         args: {},
         execute: async (_args: Record<string, never>, _context: { directory: string }): Promise<string> => {
-          clearAllStats(discovery.configPath);
+          await clearAllStats(discovery.configPath);
           
           state.cumulativeStats = {
             version: 1,
