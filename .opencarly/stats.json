@@ -1,11 +1,11 @@
 {
   "version": 1,
   "cumulative": {
-    "tokensSkippedBySelection": 39145,
-    "tokensInjected": 10079,
-    "tokensTrimmedFromHistory": 8577700,
+    "tokensSkippedBySelection": 49519,
+    "tokensInjected": 14182,
+    "tokensTrimmedFromHistory": 9327330,
     "tokensTrimmedCarlyBlocks": 0,
-    "totalTokensSaved": 8616845
+    "totalTokensSaved": 9376849
   },
   "sessions": [
     {
@@ -55,13 +55,57 @@
     {
       "sessionId": "ses_37809084dffeUpQ593U5RIdREU",
       "date": "2026-02-23T00:47:15.388Z",
-      "tokensSaved": 2284714,
-      "promptsProcessed": 10,
-      "tokensSkippedBySelection": 9164,
-      "tokensTrimmedFromHistory": 2275550,
+      "tokensSaved": 2877615,
+      "promptsProcessed": 15,
+      "tokensSkippedBySelection": 13316,
+      "tokensTrimmedFromHistory": 2864299,
       "tokensTrimmedCarlyBlocks": 0,
-      "tokensInjected": 2556,
-      "rulesInjected": 176
+      "tokensInjected": 4264,
+      "rulesInjected": 281
+    },
+    {
+      "sessionId": "ses_377d95b3bffe54EQ75nvhHpH93",
+      "date": "2026-02-23T01:39:19.909Z",
+      "tokensSaved": 1827,
+      "promptsProcessed": 2,
+      "tokensSkippedBySelection": 1827,
+      "tokensTrimmedFromHistory": 0,
+      "tokensTrimmedCarlyBlocks": 0,
+      "tokensInjected": 635,
+      "rulesInjected": 38
+    },
+    {
+      "sessionId": "ses_36471cc6effeQLAsAUJxqJ76P1",
+      "date": "2026-02-26T20:05:13.755Z",
+      "tokensSaved": 879,
+      "promptsProcessed": 1,
+      "tokensSkippedBySelection": 879,
+      "tokensTrimmedFromHistory": 0,
+      "tokensTrimmedCarlyBlocks": 0,
+      "tokensInjected": 352,
+      "rulesInjected": 22
+    },
+    {
+      "sessionId": "ses_36470f3d1ffeh6257u1aDcCWRn",
+      "date": "2026-02-26T20:06:09.206Z",
+      "tokensSaved": 162639,
+      "promptsProcessed": 2,
+      "tokensSkippedBySelection": 1758,
+      "tokensTrimmedFromHistory": 160881,
+      "tokensTrimmedCarlyBlocks": 0,
+      "tokensInjected": 704,
+      "rulesInjected": 44
+    },
+    {
+      "sessionId": "ses_36460a075ffeRvNfIlfnaBN7aM",
+      "date": "2026-02-26T20:23:59.121Z",
+      "tokensSaved": 1758,
+      "promptsProcessed": 2,
+      "tokensSkippedBySelection": 1758,
+      "tokensTrimmedFromHistory": 0,
+      "tokensTrimmedCarlyBlocks": 0,
+      "tokensInjected": 704,
+      "rulesInjected": 44
     }
   ]
 }

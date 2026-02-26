@@ -163,14 +163,37 @@ export function parseDomainFile(filePath: string): string[] {
   const content = fs.readFileSync(filePath, "utf-8");
   const lines = content.split("\n");
   const rules: string[] = [];
+  let currentRule = "";
 
   for (const line of lines) {
     const trimmed = line.trim();
-    if (trimmed === "") continue;
-    if (trimmed.startsWith("#")) continue;
-    if (trimmed.startsWith("- ")) {
-      rules.push(trimmed.slice(2).trim());
+    
+    // Ignore headings but break the current rule
+    if (trimmed.startsWith("#")) {
+      if (currentRule) {
+        rules.push(currentRule.trim());
+        currentRule = "";
+      }
+      continue;
     }
+
+    // A list marker starts a new rule
+    const match = trimmed.match(/^([-*+]|\d+\.)\s+(.*)/);
+    if (match) {
+      if (currentRule) {
+        rules.push(currentRule.trim());
+      }
+      currentRule = match[2]; // Don't trim the inner content heavily here
+    } else {
+      // If we're inside a rule, append the line (preserve leading spaces for code blocks)
+      if (currentRule) {
+        currentRule += "\n" + line;
+      }
+    }
+  }
+
+  if (currentRule) {
+    rules.push(currentRule.trim());
   }
 
   return rules;

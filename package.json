@@ -21,10 +21,12 @@
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
+    "minimatch": "^10.2.4",
     "zod": "^3.23.0"
   },
   "devDependencies": {
     "@opencode-ai/plugin": "^1.0.0",
+    "@types/minimatch": "^5.1.2",
     "@types/node": "^22.0.0",
     "typescript": "^5.7.0"
   },

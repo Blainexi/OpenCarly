@@ -6,6 +6,7 @@
  */
 
 import type { Manifest } from "../config/schema";
+import { minimatch } from "minimatch";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -55,32 +56,14 @@ export function detectStarCommands(prompt: string): string[] {
 // Path and Glob Matching
 // ---------------------------------------------------------------------------
 
-const globRegexCache = new Map<string, RegExp>();
-
-function globToRegExp(glob: string): RegExp {
-  if (globRegexCache.has(glob)) return globRegexCache.get(glob)!;
-
-  let escaped = "";
-  for (let i = 0; i < glob.length; i++) {
-    const c = glob[i];
-    if (/[.+^${}()|[\]\\]/.test(c)) {
-      escaped += "\\" + c;
-    } else {
-      escaped += c;
-    }
-  }
-  const regexStr = "^" + escaped.replace(/\*\*/g, ".*").replace(/\*/g, "[^/]*").replace(/\?/g, ".") + "$";
-  const regex = new RegExp(regexStr);
-  globRegexCache.set(glob, regex);
-  return regex;
-}
-
-/**
- * Check if a file path matches any of the given glob patterns.
- */
 export function isPathMatch(filePath: string, patterns: string[]): boolean {
   for (const pattern of patterns) {
-    if (globToRegExp(pattern).test(filePath)) {
+    let p = pattern;
+    if (!p.startsWith("**") && !p.startsWith("/") && p.includes("/")) {
+      p = "**/" + p;
+    }
+    
+    if (minimatch(filePath, p, { matchBase: !p.includes("/") })) {
       return true;
     }
   }
@@ -96,8 +79,8 @@ function extractPathsFromPrompt(prompt: string): string[] {
   const paths: string[] = [];
   
   for (const word of words) {
-    // Strip trailing punctuation
-    const cleanWord = word.replace(/[.,;:!?)$'"]+$/, "").replace(/^['"(]+/, "");
+    // Strip trailing punctuation and line numbers/colons
+    const cleanWord = word.replace(/[:,][0-9]+(?:[:,][0-9]+)?$/, "").replace(/[.,;:!?)$'"]+$/, "").replace(/^['"(]+/, "");
     if (cleanWord.includes("/") || /\.[a-z0-9]{1,4}$/i.test(cleanWord)) {
       paths.push(cleanWord);
     }
@@ -125,9 +108,13 @@ function findMatchingKeywords(
     const keywordLower = keyword.toLowerCase().trim();
     if (keywordLower === "") continue;
 
-    // Escape regex special chars and do boundary match
+    // Boundary match using lookarounds
     const escaped = keywordLower.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    if (new RegExp(`(^|\\W)${escaped}($|\\W)`, "i").test(promptLower)) {
+    const prefix = /^\w/.test(keywordLower) ? "(?:^|\\W)" : "";
+    const suffix = /\w$/.test(keywordLower) ? "(?:$|\\W)" : "";
+    
+    const regex = new RegExp(prefix + escaped + suffix, "i");
+    if (regex.test(promptLower)) {
       matches.push(keyword);
     }
   }

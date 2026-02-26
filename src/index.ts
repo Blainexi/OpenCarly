@@ -43,14 +43,12 @@ interface PluginState {
   lastMatch: Map<string, MatchResult>;
   /** Prompt text from the latest chat.message, keyed by sessionID */
   lastPrompt: Map<string, string>;
-  /** Most recently active session ID (for hooks without sessionID) */
-  activeSessionID: string | null;
   /** Baseline: estimated tokens if all rules loaded every prompt */
   baselineTokensPerPrompt: number;
   /** Cumulative stats from all sessions (loaded from stats.json) */
   cumulativeStats: CumulativeStats;
-  /** The currently active model ID */
-  activeModel: string | null;
+  /** The currently active model ID keyed by sessionID */
+  activeModels: Map<string, string>;
 }
 
 // ---------------------------------------------------------------------------
@@ -295,10 +293,9 @@ export const OpenCarly: Plugin = async ({ directory, client }) => {
     sessions: new Map(),
     lastMatch: new Map(),
     lastPrompt: new Map(),
-    activeSessionID: null,
-    activeModel: null,
     baselineTokensPerPrompt,
     cumulativeStats,
+    activeModels: new Map(),
   };
 
   // Clean stale sessions on startup
@@ -332,8 +329,8 @@ export const OpenCarly: Plugin = async ({ directory, client }) => {
       const { sessionID, model } = input;
 
       // Capture the active model ID for stats reporting
-      if (model?.modelID) {
-        state.activeModel = model.modelID;
+      if (model?.modelID && sessionID) {
+        state.activeModels.set(sessionID, model.modelID);
       }
 
       const promptText = extractPromptText(
@@ -369,12 +366,11 @@ export const OpenCarly: Plugin = async ({ directory, client }) => {
       );
 
       // Run domain matcher
-      const matchResult = matchDomains(promptText, effectiveManifest);
+      const matchResult = matchDomains(promptText, effectiveManifest, currentSession.activeFiles);
 
       // Cache for system.transform hook
       state.lastMatch.set(sessionID, matchResult);
       state.lastPrompt.set(sessionID, promptText);
-      state.activeSessionID = sessionID;
 
       // Log match results
       await log("debug", "Prompt matched", {
@@ -505,7 +501,7 @@ export const OpenCarly: Plugin = async ({ directory, client }) => {
     // -----------------------------------------------------------------
     // experimental.chat.messages.transform: smart tool output trimming
     // -----------------------------------------------------------------
-    "experimental.chat.messages.transform": async (_input, output) => {
+    "experimental.chat.messages.transform": async (input, output) => {
       const trimConfig = state.config.context.trimming;
 
       const trimStats = trimMessageHistory(
@@ -513,35 +509,28 @@ export const OpenCarly: Plugin = async ({ directory, client }) => {
         trimConfig
       );
 
-      // Accumulate trim stats to the session
-      if (trimStats.tokensSaved > 0 || trimStats.carlyBlocksStripped > 0) {
-        const sessionID = state.activeSessionID;
-        const session = sessionID ? state.sessions.get(sessionID) : undefined;
+      const sessionID = (input as any).sessionID as string | undefined;
+      const session = sessionID ? state.sessions.get(sessionID) : undefined;
 
-        if (session) {
+      if (session) {
+        // Always update active files
+        session.activeFiles = trimStats.activeFiles;
+
+        // Accumulate trim stats to the session
+        if (trimStats.tokensSaved > 0 || trimStats.carlyBlocksStripped > 0) {
           session.tokenStats.tokensTrimmedFromHistory += trimStats.tokensSaved;
           session.tokenStats.tokensTrimmedCarlyBlocks += trimStats.carlyTokensSaved;
 
-          try {
-            saveSession(discovery.configPath, session);
-          } catch {
-            // Non-critical
-          }
+          await log("debug", "History trimmed", {
+            partsTrimmed: trimStats.partsTrimmed,
+            tokensSaved: trimStats.tokensSaved,
+            carlyBlocksStripped: trimStats.carlyBlocksStripped,
+            mode: trimConfig.mode,
+          });
         }
 
-        await log("debug", "History trimmed", {
-          partsTrimmed: trimStats.partsTrimmed,
-          tokensSaved: trimStats.tokensSaved,
-          carlyBlocksStripped: trimStats.carlyBlocksStripped,
-          mode: trimConfig.mode,
-        });
-      }
-
-      // Always update cumulative stats after messages transform completes
-      const sessionID = state.activeSessionID;
-      const session = sessionID ? state.sessions.get(sessionID) : undefined;
-      if (session) {
         try {
+          saveSession(discovery.configPath, session);
           state.cumulativeStats = updateCumulativeStats(discovery.configPath, session);
         } catch {
           // Non-critical
@@ -564,8 +553,10 @@ export const OpenCarly: Plugin = async ({ directory, client }) => {
       stats: tool({
         description: "Get OpenCarly token savings statistics",
         args: {},
-        execute: async (_args: Record<string, never>, _context: { directory: string }): Promise<string> => {
-          return generateStatsReport(discovery.configPath, state.activeSessionID || undefined, state.activeModel);
+        execute: async (_args: Record<string, never>, context: { directory: string, sessionID?: string }): Promise<string> => {
+          const sessionID = context.sessionID;
+          const activeModel = sessionID ? state.activeModels.get(sessionID) : undefined;
+          return generateStatsReport(discovery.configPath, sessionID, activeModel);
         },
       }),
       clear_stats: tool({
