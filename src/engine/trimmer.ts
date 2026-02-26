@@ -91,6 +91,19 @@ class TrimContext {
         const toolPart = part as ToolPart;
         if (toolPart.state.status !== "completed" && toolPart.state.status !== "error") continue;
 
+        if (toolPart.tool === "bash") {
+          const command = toolPart.state.input.command as string | undefined;
+          if (command) {
+            for (const knownPath of this.fileOps.keys()) {
+              const basename = knownPath.split("/").pop() || knownPath;
+              if (command.includes(knownPath) || command.includes(basename)) {
+                this.fileOps.get(knownPath)!.push({ messageIndex: mi, op: "edit" });
+              }
+            }
+          }
+          continue;
+        }
+
         const filePath = toolPart.state.input.filePath as string | undefined;
         if (!filePath) continue;
 
