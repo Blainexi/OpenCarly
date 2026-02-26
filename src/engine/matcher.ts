@@ -44,7 +44,7 @@ export function detectStarCommands(prompt: string): string[] {
   const commands: string[] = [];
   
   // Use matchAll to avoid global RegExp state mutation race conditions
-  const matches = prompt.matchAll(/\*([a-zA-Z]\w*)/g);
+  const matches = prompt.matchAll(/(?:^|\s)\*([a-zA-Z]\w*)/g);
   for (const match of matches) {
     commands.push(match[1].toLowerCase());
   }

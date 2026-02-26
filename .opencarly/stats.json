@@ -1,11 +1,11 @@
 {
   "version": 1,
   "cumulative": {
-    "tokensSkippedBySelection": 49519,
-    "tokensInjected": 14182,
+    "tokensSkippedBySelection": 53914,
+    "tokensInjected": 15942,
     "tokensTrimmedFromHistory": 9327330,
     "tokensTrimmedCarlyBlocks": 0,
-    "totalTokensSaved": 9376849
+    "totalTokensSaved": 9381244
   },
   "sessions": [
     {
@@ -99,6 +99,28 @@
     {
       "sessionId": "ses_36460a075ffeRvNfIlfnaBN7aM",
       "date": "2026-02-26T20:23:59.121Z",
+      "tokensSaved": 1758,
+      "promptsProcessed": 2,
+      "tokensSkippedBySelection": 1758,
+      "tokensTrimmedFromHistory": 0,
+      "tokensTrimmedCarlyBlocks": 0,
+      "tokensInjected": 704,
+      "rulesInjected": 44
+    },
+    {
+      "sessionId": "ses_3644ee5a6ffePBBy0YKGCnvppZ",
+      "date": "2026-02-26T20:43:21.053Z",
+      "tokensSaved": 2637,
+      "promptsProcessed": 3,
+      "tokensSkippedBySelection": 2637,
+      "tokensTrimmedFromHistory": 0,
+      "tokensTrimmedCarlyBlocks": 0,
+      "tokensInjected": 1056,
+      "rulesInjected": 66
+    },
+    {
+      "sessionId": "ses_36440453cffedH1sXYanJH7FCr",
+      "date": "2026-02-26T20:59:19.624Z",
       "tokensSaved": 1758,
       "promptsProcessed": 2,
       "tokensSkippedBySelection": 1758,

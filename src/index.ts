@@ -47,8 +47,6 @@ interface PluginState {
   baselineTokensPerPrompt: number;
   /** Cumulative stats from all sessions (loaded from stats.json) */
   cumulativeStats: CumulativeStats;
-  /** The currently active model ID keyed by sessionID */
-  activeModels: Map<string, string>;
 }
 
 // ---------------------------------------------------------------------------
@@ -286,7 +284,7 @@ export const OpenCarly: Plugin = async ({ directory, client }) => {
   });
 
   // Initialize state
-  const cumulativeStats = loadCumulativeStats(discovery.configPath);
+  const cumulativeStats = loadCumulativeStats(discovery.configPath, config.context.stats.trackDuration);
 
   const state: PluginState = {
     config,
@@ -295,7 +293,6 @@ export const OpenCarly: Plugin = async ({ directory, client }) => {
     lastPrompt: new Map(),
     baselineTokensPerPrompt,
     cumulativeStats,
-    activeModels: new Map(),
   };
 
   // Clean stale sessions on startup
@@ -322,21 +319,16 @@ export const OpenCarly: Plugin = async ({ directory, client }) => {
           }
         },
     
-        // -----------------------------------------------------------------
-        // chat.message: scan prompt, detect keywords + star-commands
+    // -----------------------------------------------------------------
+    // chat.message: scan prompt, detect keywords + star-commands
     // -----------------------------------------------------------------
     "chat.message": async (input, output) => {
       const { sessionID, model } = input;
 
-      // Capture the active model ID for stats reporting
-      if (model?.modelID && sessionID) {
-        state.activeModels.set(sessionID, model.modelID);
-      }
-
       const promptText = extractPromptText(
         output.parts as Array<{ type: string; [key: string]: unknown }>
       );
-      if (!promptText) return;
+      if (promptText === undefined) return;
 
       // Get or create session
       const { session, isNew } = getOrCreateSession(
@@ -344,6 +336,11 @@ export const OpenCarly: Plugin = async ({ directory, client }) => {
         sessionID,
         directory
       );
+
+      // Capture the active model ID for stats reporting
+      if (model?.modelID) {
+        session.activeModel = model.modelID;
+      }
 
       if (isNew || !state.sessions.has(sessionID)) {
         state.sessions.set(sessionID, session);
@@ -464,7 +461,7 @@ export const OpenCarly: Plugin = async ({ directory, client }) => {
         session.tokenStats = tokenStats;
         try {
           saveSession(discovery.configPath, session);
-          state.cumulativeStats = updateCumulativeStats(discovery.configPath, session);
+          state.cumulativeStats = updateCumulativeStats(discovery.configPath, session, state.config.context.stats.trackDuration);
         } catch {
           // Non-critical
         }
@@ -478,6 +475,17 @@ export const OpenCarly: Plugin = async ({ directory, client }) => {
         avgRulesPerPrompt: tokenStats.promptsProcessed > 0
           ? Math.round((tokenStats.rulesInjected || 0) / tokenStats.promptsProcessed)
           : totalRulesThisPrompt,
+      };
+
+      loaded.tokenSavings = {
+        skippedBySelection: tokenStats.tokensSkippedBySelection,
+        trimmedFromHistory: tokenStats.tokensTrimmedFromHistory,
+        trimmedCarlyBlocks: tokenStats.tokensTrimmedCarlyBlocks,
+        tokensInjected: tokenStats.tokensInjected,
+        baselinePerPrompt: tokenStats.baselineTokensPerPrompt,
+        totalSaved: tokenStats.tokensSkippedBySelection + tokenStats.tokensTrimmedFromHistory + tokenStats.tokensTrimmedCarlyBlocks,
+        promptsProcessed: tokenStats.promptsProcessed,
+        showFullReport: matchResult.starCommands.includes("stats"),
       };
 
       // Format and inject
@@ -531,7 +539,7 @@ export const OpenCarly: Plugin = async ({ directory, client }) => {
 
         try {
           saveSession(discovery.configPath, session);
-          state.cumulativeStats = updateCumulativeStats(discovery.configPath, session);
+          state.cumulativeStats = updateCumulativeStats(discovery.configPath, session, state.config.context.stats.trackDuration);
         } catch {
           // Non-critical
         }
@@ -555,7 +563,8 @@ export const OpenCarly: Plugin = async ({ directory, client }) => {
         args: {},
         execute: async (_args: Record<string, never>, context: { directory: string, sessionID?: string }): Promise<string> => {
           const sessionID = context.sessionID;
-          const activeModel = sessionID ? state.activeModels.get(sessionID) : undefined;
+          const session = sessionID ? state.sessions.get(sessionID) : undefined;
+          const activeModel = session?.activeModel;
           return generateStatsReport(discovery.configPath, sessionID, activeModel);
         },
       }),

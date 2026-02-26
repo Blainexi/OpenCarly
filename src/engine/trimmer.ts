@@ -178,7 +178,7 @@ function scoreToolPart(
   const completed = state as ToolStateCompleted;
 
   // Already trimmed by us or by OpenCode's own compaction
-  if (completed.time.compacted) return 200;
+  if (completed.time?.compacted) return 200;
 
   // Don't bother trimming tiny outputs
   const tokenEstimate = estimateTokens(completed.output);
@@ -357,6 +357,7 @@ export function trimMessageHistory(
 
         // Replace output with summary
         completed.output = summary;
+        if (!completed.time) completed.time = { start: 0, end: 0 };
         completed.time.compacted = Date.now();
 
         stats.partsTrimmed++;

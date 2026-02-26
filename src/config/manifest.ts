@@ -164,12 +164,17 @@ export function parseDomainFile(filePath: string): string[] {
   const lines = content.split("\n");
   const rules: string[] = [];
   let currentRule = "";
+  let inCodeBlock = false;
 
   for (const line of lines) {
     const trimmed = line.trim();
     
+    if (trimmed.startsWith("```")) {
+      inCodeBlock = !inCodeBlock;
+    }
+
     // Ignore headings but break the current rule
-    if (trimmed.startsWith("#")) {
+    if (!inCodeBlock && trimmed.startsWith("#")) {
       if (currentRule) {
         rules.push(currentRule.trim());
         currentRule = "";
@@ -177,15 +182,17 @@ export function parseDomainFile(filePath: string): string[] {
       continue;
     }
 
-    // A list marker starts a new rule
-    const match = trimmed.match(/^([-*+]|\d+\.)\s+(.*)/);
-    if (match) {
+    // A list marker starts a new rule ONLY if it's not indented (starts at beginning of line)
+    const isTopLevelList = /^(?:[-*+]|\d+\.)\s+/.test(line); // Check original line, not trimmed
+    const match = line.match(/^([-*+]|\d+\.)\s+(.*)/);
+    
+    if (!inCodeBlock && isTopLevelList && match) {
       if (currentRule) {
         rules.push(currentRule.trim());
       }
-      currentRule = match[2]; // Don't trim the inner content heavily here
+      currentRule = match[2]; // Start new rule without the list marker
     } else {
-      // If we're inside a rule, append the line (preserve leading spaces for code blocks)
+      // If we're inside a rule, append the line (preserve leading spaces for code blocks and nested lists)
       if (currentRule) {
         currentRule += "\n" + line;
       }

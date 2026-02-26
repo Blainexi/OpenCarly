@@ -278,6 +278,9 @@ export const SessionConfigSchema = z.object({
   /** ISO timestamp of last activity */
   lastActivity: z.string(),
 
+  /** The currently active model ID for this session */
+  activeModel: z.string().nullable().default(null),
+
   /** Files recently read or edited by tools in this session */
   activeFiles: z.array(z.string()).default([]),
 

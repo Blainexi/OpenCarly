@@ -307,7 +307,10 @@ function calculateCumulativeStats(
  * Load cumulative stats from stats.json and session files.
  * Returns defaults if no data exists.
  */
-export function loadCumulativeStats(configPath: string): CumulativeStats {
+export function loadCumulativeStats(
+  configPath: string,
+  trackDuration: "all" | "week" | "month" = "all"
+): CumulativeStats {
   const statsPath = getStatsFilePath(configPath);
   const raw = readJsonFileSafe(statsPath);
 
@@ -385,7 +388,24 @@ export function loadCumulativeStats(configPath: string): CumulativeStats {
   }
 
   // Recalculate cumulative totals from merged sessions
-  const sessions = Array.from(sessionMap.values());
+  let sessions = Array.from(sessionMap.values());
+
+  if (trackDuration !== "all") {
+    const cutoff = new Date();
+    if (trackDuration === "week") {
+      cutoff.setDate(cutoff.getDate() - 7);
+    } else if (trackDuration === "month") {
+      cutoff.setMonth(cutoff.getMonth() - 1);
+    }
+    const cutoffTime = cutoff.getTime();
+    sessions = sessions.filter(s => new Date(s.date).getTime() >= cutoffTime);
+  }
+  
+  sessions.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  if (sessions.length > 100) {
+    sessions = sessions.slice(0, 100);
+  }
+
   const cumulative = calculateCumulativeStats(sessions);
 
   return {
@@ -436,7 +456,8 @@ export function clearAllStats(configPath: string): void {
  */
 export function updateCumulativeStats(
   configPath: string,
-  session: SessionConfig
+  session: SessionConfig,
+  trackDuration: "all" | "month" | "week" = "all"
 ): CumulativeStats {
   const statsPath = getStatsFilePath(configPath);
   let stats: CumulativeStats;
@@ -462,24 +483,56 @@ export function updateCumulativeStats(
     rulesInjected: session.tokenStats.rulesInjected || 0,
   };
   
+  // We preserve the previous cumulative totals
+  const prevCumulativeTokensSkipped = stats.cumulative.tokensSkippedBySelection || 0;
+  const prevCumulativeTokensTrimmedHistory = stats.cumulative.tokensTrimmedFromHistory || 0;
+  const prevCumulativeTokensTrimmedCarlyBlocks = stats.cumulative.tokensTrimmedCarlyBlocks || 0;
+  const prevCumulativeTokensInjected = stats.cumulative.tokensInjected || 0;
+  const prevCumulativeTotalSaved = stats.cumulative.totalTokensSaved || 0;
+  
   if (existingIndex >= 0) {
+    // If it's an existing session, we subtract the old values first before adding new ones
+    const oldSession = stats.sessions[existingIndex];
+    stats.cumulative.tokensSkippedBySelection = prevCumulativeTokensSkipped - (oldSession.tokensSkippedBySelection || 0);
+    stats.cumulative.tokensTrimmedFromHistory = prevCumulativeTokensTrimmedHistory - (oldSession.tokensTrimmedFromHistory || 0);
+    stats.cumulative.tokensTrimmedCarlyBlocks = prevCumulativeTokensTrimmedCarlyBlocks - (oldSession.tokensTrimmedCarlyBlocks || 0);
+    stats.cumulative.tokensInjected = prevCumulativeTokensInjected - (oldSession.tokensInjected || 0);
+    stats.cumulative.totalTokensSaved = prevCumulativeTotalSaved - (oldSession.tokensSaved || 0);
+    
     stats.sessions[existingIndex] = summary;
   } else {
     stats.sessions.push(summary);
+    // Keep current totals, we will add the new session's values below
+    stats.cumulative.tokensSkippedBySelection = prevCumulativeTokensSkipped;
+    stats.cumulative.tokensTrimmedFromHistory = prevCumulativeTokensTrimmedHistory;
+    stats.cumulative.tokensTrimmedCarlyBlocks = prevCumulativeTokensTrimmedCarlyBlocks;
+    stats.cumulative.tokensInjected = prevCumulativeTokensInjected;
+    stats.cumulative.totalTokensSaved = prevCumulativeTotalSaved;
   }
   
-  stats.cumulative.tokensSkippedBySelection = 0;
-  stats.cumulative.tokensTrimmedFromHistory = 0;
-  stats.cumulative.tokensTrimmedCarlyBlocks = 0;
-  stats.cumulative.tokensInjected = 0;
-  stats.cumulative.totalTokensSaved = 0;
-  
-  for (const s of stats.sessions) {
-    stats.cumulative.tokensSkippedBySelection += s.tokensSkippedBySelection || 0;
-    stats.cumulative.tokensTrimmedFromHistory += s.tokensTrimmedFromHistory || 0;
-    stats.cumulative.tokensTrimmedCarlyBlocks += s.tokensTrimmedCarlyBlocks || 0;
-    stats.cumulative.tokensInjected += s.tokensInjected || 0;
-    stats.cumulative.totalTokensSaved += s.tokensSaved || 0;
+  // Add the newly updated or pushed session to the cumulative totals
+  stats.cumulative.tokensSkippedBySelection += summary.tokensSkippedBySelection || 0;
+  stats.cumulative.tokensTrimmedFromHistory += summary.tokensTrimmedFromHistory || 0;
+  stats.cumulative.tokensTrimmedCarlyBlocks += summary.tokensTrimmedCarlyBlocks || 0;
+  stats.cumulative.tokensInjected += summary.tokensInjected || 0;
+  stats.cumulative.totalTokensSaved += summary.tokensSaved || 0;
+
+  // Filter based on trackDuration
+  if (trackDuration !== "all") {
+    const cutoff = new Date();
+    if (trackDuration === "week") {
+      cutoff.setDate(cutoff.getDate() - 7);
+    } else if (trackDuration === "month") {
+      cutoff.setMonth(cutoff.getMonth() - 1);
+    }
+    const cutoffTime = cutoff.getTime();
+    stats.sessions = stats.sessions.filter(s => new Date(s.date).getTime() >= cutoffTime);
+  }
+
+  // Limit array size to prevent unbounded growth (max 100)
+  stats.sessions.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  if (stats.sessions.length > 100) {
+    stats.sessions = stats.sessions.slice(0, 100);
   }
   
   saveCumulativeStats(configPath, stats);
