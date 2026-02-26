@@ -390,6 +390,8 @@ export function loadCumulativeStats(
   // Recalculate cumulative totals from merged sessions
   let sessions = Array.from(sessionMap.values());
 
+  let cumulative: CumulativeStats["cumulative"];
+
   if (trackDuration !== "all") {
     const cutoff = new Date();
     if (trackDuration === "week") {
@@ -399,14 +401,32 @@ export function loadCumulativeStats(
     }
     const cutoffTime = cutoff.getTime();
     sessions = sessions.filter(s => new Date(s.date).getTime() >= cutoffTime);
+    
+    // For specific durations, recalculate to only include sessions within the timeframe
+    cumulative = calculateCumulativeStats(sessions);
+  } else {
+    // For "all" time, use the persistent running total to avoid truncation after 100 sessions
+    cumulative = { ...statsJson.cumulative };
+    
+    // Add any missing stray session files that weren't in the stats.json
+    for (const sessionFile of sessionFiles) {
+      const sessionData = readJsonFileSafe(sessionFile.path) as SessionFileData | null;
+      if (sessionData && sessionData.id && sessionData.tokenStats) {
+        if (!statsJson.sessions.find(s => s.sessionId === sessionData.id)) {
+          cumulative.tokensSkippedBySelection += sessionData.tokenStats.tokensSkippedBySelection || 0;
+          cumulative.tokensTrimmedFromHistory += sessionData.tokenStats.tokensTrimmedFromHistory || 0;
+          cumulative.tokensTrimmedCarlyBlocks += sessionData.tokenStats.tokensTrimmedCarlyBlocks || 0;
+          cumulative.tokensInjected += sessionData.tokenStats.tokensInjected || 0;
+          cumulative.totalTokensSaved += calculateTokensSaved(sessionData.tokenStats);
+        }
+      }
+    }
   }
   
   sessions.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   if (sessions.length > 100) {
     sessions = sessions.slice(0, 100);
   }
-
-  const cumulative = calculateCumulativeStats(sessions);
 
   return {
     version: statsJson.version,

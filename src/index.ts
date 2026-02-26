@@ -325,10 +325,8 @@ export const OpenCarly: Plugin = async ({ directory, client }) => {
     "chat.message": async (input, output) => {
       const { sessionID, model } = input;
 
-      const promptText = extractPromptText(
-        output.parts as Array<{ type: string; [key: string]: unknown }>
-      );
-      if (promptText === undefined) return;
+      const promptParts = (output.parts as Array<{ type: string; [key: string]: unknown }>) || [];
+      const promptText = extractPromptText(promptParts);
 
       // Get or create session
       const { session, isNew } = getOrCreateSession(
