@@ -94,10 +94,10 @@ export type CommandsFile = z.infer<typeof CommandsFileSchema>;
 
 export const ContextBracketSchema = z.object({
   /** Whether this bracket is enabled */
-  enabled: z.boolean().default(true),
+  enabled: z.boolean().catch(true).default(true),
 
   /** Rules injected when this bracket is active */
-  rules: z.array(z.string()).default([]),
+  rules: z.array(z.string()).catch([]).default([]),
 });
 
 export type ContextBracket = z.infer<typeof ContextBracketSchema>;
@@ -108,7 +108,7 @@ export type ContextBracket = z.infer<typeof ContextBracketSchema>;
 
 export const TrimmingConfigSchema = z.object({
   /** Whether tool output trimming is enabled */
-  enabled: z.boolean().default(true),
+  enabled: z.boolean().catch(true).default(true),
 
   /**
    * Trimming aggressiveness mode:
@@ -116,10 +116,10 @@ export const TrimmingConfigSchema = z.object({
    * - moderate: good balance of savings vs safety (threshold=40)
    * - aggressive: trims most things beyond preserveLastN (threshold=60)
    */
-  mode: z.enum(["conservative", "moderate", "aggressive"]).default("moderate"),
+  mode: z.enum(["conservative", "moderate", "aggressive"]).catch("moderate").default("moderate"),
 
   /** Hard floor: never trim tool outputs in the last N messages */
-  preserveLastN: z.number().min(1).default(3),
+  preserveLastN: z.number().min(1).catch(3).default(3),
 });
 
 export type TrimmingConfig = z.infer<typeof TrimmingConfigSchema>;
@@ -135,7 +135,7 @@ export const StatsConfigSchema = z.object({
    * - "month": Only sessions from last 30 days
    * - "week": Only sessions from last 7 days
    */
-  trackDuration: z.enum(["all", "month", "week"]).default("all"),
+  trackDuration: z.enum(["all", "month", "week"]).catch("all").default("all"),
 });
 
 export type StatsConfig = z.infer<typeof StatsConfigSchema>;
@@ -151,26 +151,32 @@ export const ContextFileSchema = z.object({
   /** Prompt count thresholds for bracket transitions */
   thresholds: z
     .object({
-      moderate: z.number().default(15),
-      depleted: z.number().default(35),
-      critical: z.number().default(50),
+      moderate: z.number().catch(15).default(15),
+      depleted: z.number().catch(35).default(35),
+      critical: z.number().catch(50).default(50),
     })
+    .catch({ moderate: 15, depleted: 35, critical: 50 })
     .default({}),
 
   /** Bracket definitions */
   brackets: z
     .object({
-      fresh: ContextBracketSchema.default({ enabled: true, rules: [] }),
-      moderate: ContextBracketSchema.default({ enabled: true, rules: [] }),
-      depleted: ContextBracketSchema.default({ enabled: true, rules: [] }),
+      fresh: ContextBracketSchema.catch({ enabled: true, rules: [] }).default({ enabled: true, rules: [] }),
+      moderate: ContextBracketSchema.catch({ enabled: true, rules: [] }).default({ enabled: true, rules: [] }),
+      depleted: ContextBracketSchema.catch({ enabled: true, rules: [] }).default({ enabled: true, rules: [] }),
+    })
+    .catch({
+      fresh: { enabled: true, rules: [] },
+      moderate: { enabled: true, rules: [] },
+      depleted: { enabled: true, rules: [] },
     })
     .default({}),
 
   /** Smart tool output trimming configuration */
-  trimming: TrimmingConfigSchema.default({}),
+  trimming: TrimmingConfigSchema.catch({ enabled: true, mode: "moderate", preserveLastN: 3 }).default({}),
 
   /** Token stats tracking configuration */
-  stats: StatsConfigSchema.default({}),
+  stats: StatsConfigSchema.catch({ trackDuration: "all" }).default({}),
 });
 
 export type ContextFile = z.infer<typeof ContextFileSchema>;
