@@ -81,7 +81,7 @@ function extractPathsFromPrompt(prompt: string): string[] {
   for (const word of words) {
     // Strip trailing punctuation and line numbers/colons
     const cleanWord = word.replace(/[:,][0-9]+(?:[:,][0-9]+)?$/, "").replace(/[.,;:!?)$'"]+$/, "").replace(/^['"(]+/, "");
-    if (cleanWord.includes("/") || /\.[a-z0-9]{1,4}$/i.test(cleanWord)) {
+    if (cleanWord.includes("/") || /\.(ts|js|jsx|tsx|py|go|rs|java|c|cpp|h|hpp|md|json|yml|yaml|txt|sh|html|css|scss|less|toml)$/i.test(cleanWord)) {
       paths.push(cleanWord);
     }
   }
