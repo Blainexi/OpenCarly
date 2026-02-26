@@ -131,7 +131,7 @@ async function generateStatsReport(configPath: string, activeSessionId?: string,
   
   let currentSessionSummary = activeSessionId 
     ? stats.sessions.find(s => s.sessionId === activeSessionId)
-    : stats.sessions[stats.sessions.length - 1];
+    : stats.sessions[0];
   
   let currentTokenStats = {
     tokensSkippedBySelection: 0,
@@ -195,7 +195,7 @@ async function generateStatsReport(configPath: string, activeSessionId?: string,
 
   output += `## 🕒 RECENT SESSION HISTORY\n`;
   output += `| Date | Session ID | Prompts | Tokens Saved |\n|---|---|---|---|\n`;
-  for (const session of stats.sessions.slice().reverse().slice(0, 10)) {
+  for (const session of stats.sessions.slice(0, 10)) {
     const shortId = session.sessionId.replace("ses_", "").slice(0, 8) + "...";
     output += `| ${session.date?.split("T")[0] || "Unknown"} | \`${shortId}\` | ${session.promptsProcessed} | ${formatNumber(session.tokensSaved || 0)} |\n`;
   }

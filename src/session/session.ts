@@ -407,20 +407,6 @@ export function loadCumulativeStats(
   } else {
     // For "all" time, use the persistent running total to avoid truncation after 100 sessions
     cumulative = { ...statsJson.cumulative };
-    
-    // Add any missing stray session files that weren't in the stats.json
-    for (const sessionFile of sessionFiles) {
-      const sessionData = readJsonFileSafe(sessionFile.path) as SessionFileData | null;
-      if (sessionData && sessionData.id && sessionData.tokenStats) {
-        if (!statsJson.sessions.find(s => s.sessionId === sessionData.id)) {
-          cumulative.tokensSkippedBySelection += sessionData.tokenStats.tokensSkippedBySelection || 0;
-          cumulative.tokensTrimmedFromHistory += sessionData.tokenStats.tokensTrimmedFromHistory || 0;
-          cumulative.tokensTrimmedCarlyBlocks += sessionData.tokenStats.tokensTrimmedCarlyBlocks || 0;
-          cumulative.tokensInjected += sessionData.tokenStats.tokensInjected || 0;
-          cumulative.totalTokensSaved += calculateTokensSaved(sessionData.tokenStats);
-        }
-      }
-    }
   }
   
   sessions.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
@@ -547,6 +533,7 @@ export function updateCumulativeStats(
     }
     const cutoffTime = cutoff.getTime();
     stats.sessions = stats.sessions.filter(s => new Date(s.date).getTime() >= cutoffTime);
+    stats.cumulative = calculateCumulativeStats(stats.sessions);
   }
 
   // Limit array size to prevent unbounded growth (max 100)
