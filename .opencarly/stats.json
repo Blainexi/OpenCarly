@@ -1,13 +1,61 @@
 {
   "version": 1,
   "cumulative": {
-    "tokensSkippedBySelection": 71916,
-    "tokensInjected": 23582,
+    "tokensSkippedBySelection": 75072,
+    "tokensInjected": 24990,
     "tokensTrimmedFromHistory": 9327330,
     "tokensTrimmedCarlyBlocks": 0,
-    "totalTokensSaved": 9399246
+    "totalTokensSaved": 9402402
   },
   "sessions": [
+    {
+      "sessionId": "ses_363b0f4a2ffeIQsbML3mxkPFmp",
+      "date": "2026-02-26T23:35:51.903Z",
+      "lastActivity": "2026-02-26T23:35:51.903Z",
+      "tokensSaved": 789,
+      "promptsProcessed": 1,
+      "tokensSkippedBySelection": 789,
+      "tokensTrimmedFromHistory": 0,
+      "tokensTrimmedCarlyBlocks": 0,
+      "tokensInjected": 352,
+      "rulesInjected": 22
+    },
+    {
+      "sessionId": "ses_363b0fbf5ffeRtzGsan1AWKHQ2",
+      "date": "2026-02-26T23:35:50.028Z",
+      "lastActivity": "2026-02-26T23:35:50.028Z",
+      "tokensSaved": 789,
+      "promptsProcessed": 1,
+      "tokensSkippedBySelection": 789,
+      "tokensTrimmedFromHistory": 0,
+      "tokensTrimmedCarlyBlocks": 0,
+      "tokensInjected": 352,
+      "rulesInjected": 22
+    },
+    {
+      "sessionId": "ses_363b1029fffe0FX6o9FTA9jHda",
+      "date": "2026-02-26T23:35:48.322Z",
+      "lastActivity": "2026-02-26T23:35:48.322Z",
+      "tokensSaved": 789,
+      "promptsProcessed": 1,
+      "tokensSkippedBySelection": 789,
+      "tokensTrimmedFromHistory": 0,
+      "tokensTrimmedCarlyBlocks": 0,
+      "tokensInjected": 352,
+      "rulesInjected": 22
+    },
+    {
+      "sessionId": "ses_363b10ae6ffeajiql2867A268g",
+      "date": "2026-02-26T23:35:46.204Z",
+      "lastActivity": "2026-02-26T23:35:46.205Z",
+      "tokensSaved": 789,
+      "promptsProcessed": 1,
+      "tokensSkippedBySelection": 789,
+      "tokensTrimmedFromHistory": 0,
+      "tokensTrimmedCarlyBlocks": 0,
+      "tokensInjected": 352,
+      "rulesInjected": 22
+    },
     {
       "sessionId": "ses_363b30a12ffejDCPiK2TAfJORY",
       "date": "2026-02-26T23:33:37.884Z",

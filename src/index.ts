@@ -490,15 +490,6 @@ export const OpenCarly: Plugin = async ({ directory, client }) => {
       const formatted = formatRules(loaded);
       output.system.push(formatted);
 
-      // Persist session with updated stats
-      if (session) {
-        try {
-          await saveSession(discovery.configPath, session);
-        } catch {
-          // Non-critical
-        }
-      }
-
       // Cleanup cached match
       state.lastMatch.delete(sessionID);
       state.lastPrompt.delete(sessionID);

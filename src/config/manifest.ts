@@ -161,7 +161,7 @@ export function parseDomainFile(filePath: string): string[] {
   }
 
   const content = fs.readFileSync(filePath, "utf-8");
-  const lines = content.split("\n");
+  const lines = content.replace(/\r\n/g, "\n").split("\n");
   const rules: string[] = [];
   let currentRule = "";
   let inCodeBlock = false;

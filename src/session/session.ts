@@ -19,7 +19,7 @@ import {
 
 const SESSIONS_DIR = "sessions";
 const STATS_FILE = "stats.json";
-const STALE_SESSION_HOURS = 24;
+const STALE_SESSION_HOURS = 720;
 
 // ---------------------------------------------------------------------------
 // Session CRUD

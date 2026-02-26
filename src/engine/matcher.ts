@@ -57,13 +57,14 @@ export function detectStarCommands(prompt: string): string[] {
 // ---------------------------------------------------------------------------
 
 export function isPathMatch(filePath: string, patterns: string[]): boolean {
+  const normalizedPath = filePath.replace(/\\/g, "/");
   for (const pattern of patterns) {
     let p = pattern;
     if (!p.startsWith("**") && !p.startsWith("/") && p.includes("/")) {
       p = "**/" + p;
     }
     
-    if (minimatch(filePath, p, { matchBase: !p.includes("/") })) {
+    if (minimatch(normalizedPath, p, { matchBase: !p.includes("/") })) {
       return true;
     }
   }
