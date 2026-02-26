@@ -496,6 +496,9 @@ export async function updateCumulativeStats(
     rulesInjected: session.tokenStats.rulesInjected || 0,
   };
   
+  const isReEntering = existingIndex === -1 && session.tokenStats.promptsProcessed > 1;
+  let isReset = false;
+
   // We preserve the previous cumulative totals
   const prevCumulativeTokensSkipped = stats.cumulative.tokensSkippedBySelection || 0;
   const prevCumulativeTokensTrimmedHistory = stats.cumulative.tokensTrimmedFromHistory || 0;
@@ -504,18 +507,29 @@ export async function updateCumulativeStats(
   const prevCumulativeTotalSaved = stats.cumulative.totalTokensSaved || 0;
   
   if (existingIndex >= 0) {
-    // If it's an existing session, we subtract the old values first before adding new ones
     const oldSession = stats.sessions[existingIndex];
-    stats.cumulative.tokensSkippedBySelection = prevCumulativeTokensSkipped - (oldSession.tokensSkippedBySelection || 0);
-    stats.cumulative.tokensTrimmedFromHistory = prevCumulativeTokensTrimmedHistory - (oldSession.tokensTrimmedFromHistory || 0);
-    stats.cumulative.tokensTrimmedCarlyBlocks = prevCumulativeTokensTrimmedCarlyBlocks - (oldSession.tokensTrimmedCarlyBlocks || 0);
-    stats.cumulative.tokensInjected = prevCumulativeTokensInjected - (oldSession.tokensInjected || 0);
-    stats.cumulative.totalTokensSaved = prevCumulativeTotalSaved - (oldSession.tokensSaved || 0);
+    isReset = session.tokenStats.promptsProcessed < (oldSession.promptsProcessed || 0);
+
+    if (!isReset) {
+      // If it's an existing session and not reset, subtract the old values first before adding new ones
+      stats.cumulative.tokensSkippedBySelection = prevCumulativeTokensSkipped - (oldSession.tokensSkippedBySelection || 0);
+      stats.cumulative.tokensTrimmedFromHistory = prevCumulativeTokensTrimmedHistory - (oldSession.tokensTrimmedFromHistory || 0);
+      stats.cumulative.tokensTrimmedCarlyBlocks = prevCumulativeTokensTrimmedCarlyBlocks - (oldSession.tokensTrimmedCarlyBlocks || 0);
+      stats.cumulative.tokensInjected = prevCumulativeTokensInjected - (oldSession.tokensInjected || 0);
+      stats.cumulative.totalTokensSaved = prevCumulativeTotalSaved - (oldSession.tokensSaved || 0);
+    } else {
+      // It's a reset. Keep current totals, do not subtract old session to preserve historical stats
+      stats.cumulative.tokensSkippedBySelection = prevCumulativeTokensSkipped;
+      stats.cumulative.tokensTrimmedFromHistory = prevCumulativeTokensTrimmedHistory;
+      stats.cumulative.tokensTrimmedCarlyBlocks = prevCumulativeTokensTrimmedCarlyBlocks;
+      stats.cumulative.tokensInjected = prevCumulativeTokensInjected;
+      stats.cumulative.totalTokensSaved = prevCumulativeTotalSaved;
+    }
     
     stats.sessions[existingIndex] = summary;
   } else {
     stats.sessions.push(summary);
-    // Keep current totals, we will add the new session's values below
+    // Keep current totals, we will add the new session's values below if not re-entering
     stats.cumulative.tokensSkippedBySelection = prevCumulativeTokensSkipped;
     stats.cumulative.tokensTrimmedFromHistory = prevCumulativeTokensTrimmedHistory;
     stats.cumulative.tokensTrimmedCarlyBlocks = prevCumulativeTokensTrimmedCarlyBlocks;
@@ -524,11 +538,13 @@ export async function updateCumulativeStats(
   }
   
   // Add the newly updated or pushed session to the cumulative totals
-  stats.cumulative.tokensSkippedBySelection += summary.tokensSkippedBySelection || 0;
-  stats.cumulative.tokensTrimmedFromHistory += summary.tokensTrimmedFromHistory || 0;
-  stats.cumulative.tokensTrimmedCarlyBlocks += summary.tokensTrimmedCarlyBlocks || 0;
-  stats.cumulative.tokensInjected += summary.tokensInjected || 0;
-  stats.cumulative.totalTokensSaved += summary.tokensSaved || 0;
+  if (!isReEntering) {
+    stats.cumulative.tokensSkippedBySelection += summary.tokensSkippedBySelection || 0;
+    stats.cumulative.tokensTrimmedFromHistory += summary.tokensTrimmedFromHistory || 0;
+    stats.cumulative.tokensTrimmedCarlyBlocks += summary.tokensTrimmedCarlyBlocks || 0;
+    stats.cumulative.tokensInjected += summary.tokensInjected || 0;
+    stats.cumulative.totalTokensSaved += summary.tokensSaved || 0;
+  }
 
   // Filter based on trackDuration
   if (trackDuration !== "all") {
