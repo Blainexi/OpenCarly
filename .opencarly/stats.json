@@ -1,13 +1,24 @@
 {
   "version": 1,
   "cumulative": {
-    "tokensSkippedBySelection": 64152,
-    "tokensInjected": 19936,
+    "tokensSkippedBySelection": 64941,
+    "tokensInjected": 20288,
     "tokensTrimmedFromHistory": 9327330,
     "tokensTrimmedCarlyBlocks": 0,
-    "totalTokensSaved": 9391482
+    "totalTokensSaved": 9392271
   },
   "sessions": [
+    {
+      "sessionId": "ses_363d78582ffeOBCacTX62pZ3Bo",
+      "date": "2026-02-26T22:53:44.447Z",
+      "tokensSaved": 789,
+      "promptsProcessed": 1,
+      "tokensSkippedBySelection": 789,
+      "tokensTrimmedFromHistory": 0,
+      "tokensTrimmedCarlyBlocks": 0,
+      "tokensInjected": 352,
+      "rulesInjected": 22
+    },
     {
       "sessionId": "ses_363d85526ffejVG7AMpD7jMVlN",
       "date": "2026-02-26T22:52:51.290Z",

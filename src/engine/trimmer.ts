@@ -172,16 +172,18 @@ function scoreToolPart(
 ): number {
   const state = toolPart.state;
 
-  // Only trim completed tool outputs
-  if (state.status !== "completed") return 200;
+  // Only trim completed or error tool outputs
+  if (state.status !== "completed" && state.status !== "error") return 200;
 
-  const completed = state as ToolStateCompleted;
+  const anyState = state as any;
 
   // Already trimmed by us or by OpenCode's own compaction
-  if (completed.time?.compacted) return 200;
+  if (anyState.time?.compacted) return 200;
 
   // Don't bother trimming tiny outputs
-  const tokenEstimate = estimateTokens(completed.output);
+  const outputText = typeof anyState.output === "string" ? anyState.output : 
+                     (typeof anyState.error === "string" ? anyState.error : "");
+  const tokenEstimate = estimateTokens(outputText);
   if (tokenEstimate < MIN_TRIM_TOKENS) return 200;
 
   let score = 100;
@@ -229,12 +231,17 @@ function scoreToolPart(
  * Build a compact summary to replace trimmed tool output.
  */
 function buildTrimSummary(toolPart: ToolPart, tokensSaved: number): string {
-  const completed = toolPart.state as ToolStateCompleted;
-  const title = completed.title || toolPart.tool;
+  const anyState = toolPart.state as any;
+
+  if (anyState.status === "error") {
+    return `[Trimmed by OpenCarly] Tool Error (~${tokensSaved} tokens saved)\nError output trimmed from history.`;
+  }
+
+  const title = anyState.title || toolPart.tool;
 
   if (toolPart.tool === "read") {
     const filePath = (toolPart.state.input.filePath as string) || "unknown file";
-    const lineCount = completed.output.split("\n").length;
+    const lineCount = (anyState.output || "").split("\n").length;
     return (
       `[Trimmed by OpenCarly] Read ${filePath} (${lineCount} lines, ~${tokensSaved} tokens saved)\n` +
       `Re-read this file if its contents are needed.`
@@ -350,15 +357,22 @@ export function trimMessageHistory(
       const score = scoreToolPart(toolPart, mi, totalMessages, context);
 
       if (score < threshold) {
-        const completed = toolPart.state as ToolStateCompleted;
-        const tokensBefore = estimateTokens(completed.output);
+        const anyState = toolPart.state as any;
+        const outputText = typeof anyState.output === "string" ? anyState.output : 
+                           (typeof anyState.error === "string" ? anyState.error : "");
+        const tokensBefore = estimateTokens(outputText);
         const summary = buildTrimSummary(toolPart, tokensBefore);
         const tokensAfter = estimateTokens(summary);
 
         // Replace output with summary
-        completed.output = summary;
-        if (!completed.time) completed.time = { start: 0, end: 0 };
-        completed.time.compacted = Date.now();
+        if (typeof anyState.error === "string") {
+          anyState.error = summary;
+        } else {
+          anyState.output = summary;
+        }
+
+        if (!anyState.time) anyState.time = { start: 0, end: 0 };
+        anyState.time.compacted = Date.now();
 
         stats.partsTrimmed++;
         stats.tokensSaved += Math.max(0, tokensBefore - tokensAfter);
