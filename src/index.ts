@@ -297,7 +297,7 @@ export const OpenCarly: Plugin = async ({ directory, client }) => {
 
   // Clean stale sessions on startup
   try {
-    const cleaned = cleanStaleSessions(discovery.configPath);
+    const cleaned = await cleanStaleSessions(discovery.configPath);
     if (cleaned > 0) {
       await log("debug", `Cleaned ${cleaned} stale session(s)`);
     }
@@ -312,7 +312,7 @@ export const OpenCarly: Plugin = async ({ directory, client }) => {
         event: async ({ event }) => {
           if (event.type === "session.created") {
             try {
-              cleanStaleSessions(discovery.configPath);
+              await cleanStaleSessions(discovery.configPath);
             } catch {
               // ignore
             }
@@ -459,7 +459,17 @@ export const OpenCarly: Plugin = async ({ directory, client }) => {
         session.tokenStats = tokenStats;
         try {
           await saveSession(discovery.configPath, session);
-          state.cumulativeStats = await updateCumulativeStats(discovery.configPath, session, state.config.context.stats.trackDuration);
+          const currentDelta = {
+            tokensInjected: tokensInjectedThisPrompt,
+            tokensSkippedBySelection: tokensSkippedThisPrompt,
+            tokensSaved: tokensSkippedThisPrompt
+          };
+          state.cumulativeStats = await updateCumulativeStats(
+            discovery.configPath, 
+            session, 
+            state.config.context.stats.trackDuration,
+            currentDelta
+          );
         } catch {
           // Non-critical
         }
@@ -501,10 +511,12 @@ export const OpenCarly: Plugin = async ({ directory, client }) => {
     "experimental.chat.messages.transform": async (input, output) => {
       const trimConfig = state.config.context.trimming;
 
-      const trimStats = trimMessageHistory(
+      const trimResult = trimMessageHistory(
         output.messages as Parameters<typeof trimMessageHistory>[0],
         trimConfig
       );
+      output.messages = trimResult.messages as any;
+      const trimStats = trimResult.stats;
 
       const sessionID = (input as any).sessionID as string | undefined;
       const session = sessionID ? state.sessions.get(sessionID) : undefined;
@@ -528,7 +540,17 @@ export const OpenCarly: Plugin = async ({ directory, client }) => {
 
         try {
           await saveSession(discovery.configPath, session);
-          state.cumulativeStats = await updateCumulativeStats(discovery.configPath, session, state.config.context.stats.trackDuration);
+          const currentDelta = {
+            tokensTrimmedFromHistory: trimStats.tokensSaved,
+            tokensTrimmedCarlyBlocks: trimStats.carlyTokensSaved,
+            tokensSaved: trimStats.tokensSaved + trimStats.carlyTokensSaved
+          };
+          state.cumulativeStats = await updateCumulativeStats(
+            discovery.configPath, 
+            session, 
+            state.config.context.stats.trackDuration,
+            currentDelta
+          );
         } catch {
           // Non-critical
         }

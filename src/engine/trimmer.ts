@@ -94,10 +94,13 @@ class TrimContext {
         if (toolPart.tool === "bash") {
           const command = toolPart.state.input.command as string | undefined;
           if (command) {
-            for (const knownPath of this.fileOps.keys()) {
-              const basename = knownPath.split("/").pop() || knownPath;
-              if (command.includes(knownPath) || command.includes(basename)) {
-                this.fileOps.get(knownPath)!.push({ messageIndex: mi, op: "edit" });
+            const isReadOnly = /^\s*(cat|grep|tail|head|ls|find)\s/.test(command);
+            if (!isReadOnly) {
+              for (const knownPath of this.fileOps.keys()) {
+                const basename = knownPath.split("/").pop() || knownPath;
+                if (command.includes(knownPath) || command.includes(basename)) {
+                  this.fileOps.get(knownPath)!.push({ messageIndex: mi, op: "edit" });
+                }
               }
             }
           }
@@ -316,22 +319,30 @@ export interface TrimStats {
  * 3. Return stats for logging
  */
 export function trimMessageHistory(
-  messages: TransformMessage[],
+  inputMessages: TransformMessage[],
   config: TrimmingConfig
-): TrimStats {
-  // Step 1: Build context for cross-referencing file operations
-  const context = new TrimContext(messages);
-  const totalMessages = messages.length;
-
+): { stats: TrimStats; messages: TransformMessage[] } {
   const stats: TrimStats = {
     partsTrimmed: 0,
     tokensSaved: 0,
     carlyBlocksStripped: 0,
     carlyTokensSaved: 0,
-    activeFiles: context.getRecentFiles(totalMessages, 5),
+    activeFiles: [],
   };
 
-  if (!config.enabled) return stats;
+  if (inputMessages.length === 0 || config.mode === ("off" as any)) {
+    return { stats, messages: inputMessages };
+  }
+
+  // Deep clone to prevent mutating the upstream framework's cached objects
+  const messages: TransformMessage[] = JSON.parse(JSON.stringify(inputMessages));
+
+  const context = new TrimContext(messages);
+  const totalMessages = messages.length;
+
+  stats.activeFiles = context.getRecentFiles(totalMessages, 5);
+
+  if (!config.enabled) return { stats, messages };
 
   const threshold = TRIM_THRESHOLDS[config.mode] ?? 40;
   const protectedStart = Math.max(0, totalMessages - config.preserveLastN);
@@ -350,7 +361,7 @@ export function trimMessageHistory(
           const tokensBefore = estimateTokens(textPart.text);
           const textBefore = textPart.text;
           textPart.text = textPart.text
-            .replace(/<carly-rules>[\s\S]*?<\/carly-rules>/g, "")
+            .replace(/<carly-rules>[\s\S]*?(?:<\/carly-rules>|$)/g, "")
             .trim();
           
           if (textPart.text !== textBefore) {
@@ -393,5 +404,5 @@ export function trimMessageHistory(
     }
   }
 
-  return stats;
+  return { stats, messages };
 }

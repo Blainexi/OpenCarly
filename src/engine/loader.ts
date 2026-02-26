@@ -186,7 +186,10 @@ export function loadRules(
   };
 
   // Load always-on domain rules
+  const injectedDomains = new Set<string>();
+
   for (const domainName of matchResult.alwaysOn) {
+    injectedDomains.add(domainName);
     const domain = manifest.domains[domainName];
     if (domain) {
       const rules = loadDomainRules(domainName, domain, configPath);
@@ -198,6 +201,8 @@ export function loadRules(
 
   // Load keyword-matched domain rules
   for (const domainName of Object.keys(matchResult.matched)) {
+    if (injectedDomains.has(domainName)) continue;
+    injectedDomains.add(domainName);
     const domain = manifest.domains[domainName];
     if (domain) {
       const rules = loadDomainRules(domainName, domain, configPath);
@@ -209,6 +214,8 @@ export function loadRules(
   
   // Load path-matched domain rules
   for (const domainName of Object.keys(matchResult.matchedPaths)) {
+    if (injectedDomains.has(domainName)) continue;
+    injectedDomains.add(domainName);
     const domain = manifest.domains[domainName];
     if (domain) {
       const rules = loadDomainRules(domainName, domain, configPath);

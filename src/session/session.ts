@@ -17,6 +17,26 @@ import {
   type TokenStats,
 } from "../config/schema";
 
+async function atomicWrite(filePath: string, data: string): Promise<void> {
+  const tmpPath = `${filePath}.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`;
+  await fs.promises.writeFile(tmpPath, data, "utf-8");
+  await fs.promises.rename(tmpPath, filePath);
+}
+
+class Mutex {
+  private queue: Array<() => void> = [];
+  private locked = false;
+  async acquire(): Promise<() => void> {
+    if (this.locked) await new Promise<void>(resolve => this.queue.push(resolve));
+    this.locked = true;
+    return () => {
+      if (this.queue.length > 0) { const next = this.queue.shift(); if (next) next(); }
+      else { this.locked = false; }
+    };
+  }
+}
+const sessionMutex = new Mutex();
+
 const SESSIONS_DIR = "sessions";
 const STATS_FILE = "stats.json";
 const STALE_SESSION_HOURS = 720;
@@ -119,8 +139,13 @@ export async function saveSession(
   configPath: string,
   session: SessionConfig
 ): Promise<void> {
-  const filePath = getSessionFilePath(configPath, session.id);
-  await fs.promises.writeFile(filePath, JSON.stringify(session, null, 2), "utf-8");
+  const release = await sessionMutex.acquire();
+  try {
+    const filePath = getSessionFilePath(configPath, session.id);
+    await atomicWrite(filePath, JSON.stringify(session, null, 2));
+  } finally {
+    release();
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -184,7 +209,7 @@ export function applySessionOverrides(
 /**
  * Remove session files older than STALE_SESSION_HOURS.
  */
-export function cleanStaleSessions(configPath: string): number {
+export async function cleanStaleSessions(configPath: string): Promise<number> {
   const sessionsDir = path.join(configPath, SESSIONS_DIR);
 
   if (!fs.existsSync(sessionsDir)) {
@@ -194,24 +219,24 @@ export function cleanStaleSessions(configPath: string): number {
   const cutoff = Date.now() - STALE_SESSION_HOURS * 60 * 60 * 1000;
   let cleaned = 0;
 
-  const files = fs.readdirSync(sessionsDir);
+  const files = await fs.promises.readdir(sessionsDir);
   for (const file of files) {
     if (!file.endsWith(".json")) continue;
 
     const filePath = path.join(sessionsDir, file);
     try {
-      const raw = fs.readFileSync(filePath, "utf-8");
+      const raw = await fs.promises.readFile(filePath, "utf-8");
       const session = JSON.parse(raw);
       const lastActivity = new Date(session.lastActivity).getTime();
 
       if (lastActivity < cutoff) {
-        fs.rmSync(filePath, { recursive: true, force: true });
+        await fs.promises.rm(filePath, { recursive: true, force: true });
         cleaned++;
       }
     } catch {
       // Remove corrupted files too
       try {
-        fs.rmSync(filePath, { recursive: true, force: true });
+        await fs.promises.rm(filePath, { recursive: true, force: true });
         cleaned++;
       } catch {
         // ignore
@@ -434,31 +459,41 @@ export async function saveCumulativeStats(
   configPath: string,
   stats: CumulativeStats
 ): Promise<void> {
-  const statsPath = getStatsFilePath(configPath);
-  await fs.promises.writeFile(statsPath, JSON.stringify(stats, null, 2), "utf-8");
+  const release = await sessionMutex.acquire();
+  try {
+    const statsPath = getStatsFilePath(configPath);
+    await atomicWrite(statsPath, JSON.stringify(stats, null, 2));
+  } finally {
+    release();
+  }
 }
 
 /**
  * Clear all stats by removing stats.json and all session files.
  */
 export async function clearAllStats(configPath: string): Promise<void> {
-  const statsPath = getStatsFilePath(configPath);
-  if (fs.existsSync(statsPath)) {
-    try {
-      await fs.promises.unlink(statsPath);
-    } catch {}
-  }
+  const release = await sessionMutex.acquire();
+  try {
+    const statsPath = getStatsFilePath(configPath);
+    if (fs.existsSync(statsPath)) {
+      try {
+        await fs.promises.unlink(statsPath);
+      } catch {}
+    }
 
-  const sessionsDir = getSessionsDir(configPath);
-  if (fs.existsSync(sessionsDir)) {
-    const files = fs.readdirSync(sessionsDir);
-    for (const file of files) {
-      if (file.endsWith(".json")) {
-        try {
-          await fs.promises.unlink(path.join(sessionsDir, file));
-        } catch {}
+    const sessionsDir = getSessionsDir(configPath);
+    if (fs.existsSync(sessionsDir)) {
+      const files = fs.readdirSync(sessionsDir);
+      for (const file of files) {
+        if (file.endsWith(".json")) {
+          try {
+            await fs.promises.unlink(path.join(sessionsDir, file));
+          } catch {}
+        }
       }
     }
+  } finally {
+    release();
   }
 }
 
@@ -468,57 +503,77 @@ export async function clearAllStats(configPath: string): Promise<void> {
  */
 export async function updateCumulativeStats(
   configPath: string,
-  session: SessionConfig,
-  trackDuration: "all" | "month" | "week" = "all"
-): Promise<CumulativeStats> {
-  const statsPath = getStatsFilePath(configPath);
-  let stats: CumulativeStats;
-  try {
-    const raw = readJsonFileSafe(statsPath);
-    stats = raw ? CumulativeStatsSchema.parse(raw) : { version: 1, cumulative: { tokensSkippedBySelection: 0, tokensInjected: 0, tokensTrimmedFromHistory: 0, tokensTrimmedCarlyBlocks: 0, totalTokensSaved: 0 }, sessions: [] };
-  } catch {
-    stats = { version: 1, cumulative: { tokensSkippedBySelection: 0, tokensInjected: 0, tokensTrimmedFromHistory: 0, tokensTrimmedCarlyBlocks: 0, totalTokensSaved: 0 }, sessions: [] };
+  session: any,
+  trackDuration: "all" | "week" | "month",
+  currentDelta?: {
+    tokensSkippedBySelection?: number;
+    tokensTrimmedFromHistory?: number;
+    tokensTrimmedCarlyBlocks?: number;
+    tokensInjected?: number;
+    tokensSaved?: number;
   }
-  
-  const tokensSaved = calculateTokensSaved(session.tokenStats);
-  const existingIndex = stats.sessions.findIndex(s => s.sessionId === session.id);
-  
-  const summary: CumulativeSessionSummary = {
-    sessionId: session.id,
-    date: session.started,
-    lastActivity: session.lastActivity,
-    tokensSaved,
-    promptsProcessed: session.tokenStats.promptsProcessed,
-    tokensSkippedBySelection: session.tokenStats.tokensSkippedBySelection,
-    tokensTrimmedFromHistory: session.tokenStats.tokensTrimmedFromHistory,
-    tokensTrimmedCarlyBlocks: session.tokenStats.tokensTrimmedCarlyBlocks,
-    tokensInjected: session.tokenStats.tokensInjected,
-    rulesInjected: session.tokenStats.rulesInjected || 0,
-  };
-  
-  const isReEntering = existingIndex === -1 && session.tokenStats.promptsProcessed > 1;
-  let isReset = false;
+): Promise<CumulativeStats> {
+  const release = await sessionMutex.acquire();
+  try {
+    const statsPath = getStatsFilePath(configPath);
+    let stats: CumulativeStats;
+    try {
+      const raw = readJsonFileSafe(statsPath);
+      stats = raw ? CumulativeStatsSchema.parse(raw) : { version: 1, cumulative: { tokensSkippedBySelection: 0, tokensInjected: 0, tokensTrimmedFromHistory: 0, tokensTrimmedCarlyBlocks: 0, totalTokensSaved: 0 }, sessions: [] };
+    } catch {
+      stats = { version: 1, cumulative: { tokensSkippedBySelection: 0, tokensInjected: 0, tokensTrimmedFromHistory: 0, tokensTrimmedCarlyBlocks: 0, totalTokensSaved: 0 }, sessions: [] };
+    }
+    
+    const tokensSaved = calculateTokensSaved(session.tokenStats);
+    const existingIndex = stats.sessions.findIndex(s => s.sessionId === session.id);
+    
+    const summary: CumulativeSessionSummary = {
+      sessionId: session.id,
+      date: session.started,
+      lastActivity: session.lastActivity,
+      tokensSaved,
+      promptsProcessed: session.tokenStats.promptsProcessed,
+      tokensSkippedBySelection: session.tokenStats.tokensSkippedBySelection,
+      tokensTrimmedFromHistory: session.tokenStats.tokensTrimmedFromHistory,
+      tokensTrimmedCarlyBlocks: session.tokenStats.tokensTrimmedCarlyBlocks,
+      tokensInjected: session.tokenStats.tokensInjected,
+      rulesInjected: session.tokenStats.rulesInjected || 0,
+    };
+    
+    const isReEntering = existingIndex === -1 && session.tokenStats.promptsProcessed > 1;
+    let isReset = false;
 
-  // We preserve the previous cumulative totals
-  const prevCumulativeTokensSkipped = stats.cumulative.tokensSkippedBySelection || 0;
-  const prevCumulativeTokensTrimmedHistory = stats.cumulative.tokensTrimmedFromHistory || 0;
-  const prevCumulativeTokensTrimmedCarlyBlocks = stats.cumulative.tokensTrimmedCarlyBlocks || 0;
-  const prevCumulativeTokensInjected = stats.cumulative.tokensInjected || 0;
-  const prevCumulativeTotalSaved = stats.cumulative.totalTokensSaved || 0;
-  
-  if (existingIndex >= 0) {
-    const oldSession = stats.sessions[existingIndex];
-    isReset = session.tokenStats.promptsProcessed < (oldSession.promptsProcessed || 0);
+    // We preserve the previous cumulative totals
+    const prevCumulativeTokensSkipped = stats.cumulative.tokensSkippedBySelection || 0;
+    const prevCumulativeTokensTrimmedHistory = stats.cumulative.tokensTrimmedFromHistory || 0;
+    const prevCumulativeTokensTrimmedCarlyBlocks = stats.cumulative.tokensTrimmedCarlyBlocks || 0;
+    const prevCumulativeTokensInjected = stats.cumulative.tokensInjected || 0;
+    const prevCumulativeTotalSaved = stats.cumulative.totalTokensSaved || 0;
+    
+    if (existingIndex >= 0) {
+      const oldSession = stats.sessions[existingIndex];
+      isReset = session.tokenStats.promptsProcessed < (oldSession.promptsProcessed || 0);
 
-    if (!isReset) {
-      // If it's an existing session and not reset, subtract the old values first before adding new ones
-      stats.cumulative.tokensSkippedBySelection = prevCumulativeTokensSkipped - (oldSession.tokensSkippedBySelection || 0);
-      stats.cumulative.tokensTrimmedFromHistory = prevCumulativeTokensTrimmedHistory - (oldSession.tokensTrimmedFromHistory || 0);
-      stats.cumulative.tokensTrimmedCarlyBlocks = prevCumulativeTokensTrimmedCarlyBlocks - (oldSession.tokensTrimmedCarlyBlocks || 0);
-      stats.cumulative.tokensInjected = prevCumulativeTokensInjected - (oldSession.tokensInjected || 0);
-      stats.cumulative.totalTokensSaved = prevCumulativeTotalSaved - (oldSession.tokensSaved || 0);
+      if (!isReset) {
+        // If it's an existing session and not reset, subtract the old values first before adding new ones
+        stats.cumulative.tokensSkippedBySelection = prevCumulativeTokensSkipped - (oldSession.tokensSkippedBySelection || 0);
+        stats.cumulative.tokensTrimmedFromHistory = prevCumulativeTokensTrimmedHistory - (oldSession.tokensTrimmedFromHistory || 0);
+        stats.cumulative.tokensTrimmedCarlyBlocks = prevCumulativeTokensTrimmedCarlyBlocks - (oldSession.tokensTrimmedCarlyBlocks || 0);
+        stats.cumulative.tokensInjected = prevCumulativeTokensInjected - (oldSession.tokensInjected || 0);
+        stats.cumulative.totalTokensSaved = prevCumulativeTotalSaved - (oldSession.tokensSaved || 0);
+      } else {
+        // It's a reset. Keep current totals, do not subtract old session to preserve historical stats
+        stats.cumulative.tokensSkippedBySelection = prevCumulativeTokensSkipped;
+        stats.cumulative.tokensTrimmedFromHistory = prevCumulativeTokensTrimmedHistory;
+        stats.cumulative.tokensTrimmedCarlyBlocks = prevCumulativeTokensTrimmedCarlyBlocks;
+        stats.cumulative.tokensInjected = prevCumulativeTokensInjected;
+        stats.cumulative.totalTokensSaved = prevCumulativeTotalSaved;
+      }
+      
+      stats.sessions[existingIndex] = summary;
     } else {
-      // It's a reset. Keep current totals, do not subtract old session to preserve historical stats
+      stats.sessions.push(summary);
+      // Keep current totals, we will add the new session's values below if not re-entering
       stats.cumulative.tokensSkippedBySelection = prevCumulativeTokensSkipped;
       stats.cumulative.tokensTrimmedFromHistory = prevCumulativeTokensTrimmedHistory;
       stats.cumulative.tokensTrimmedCarlyBlocks = prevCumulativeTokensTrimmedCarlyBlocks;
@@ -526,51 +581,50 @@ export async function updateCumulativeStats(
       stats.cumulative.totalTokensSaved = prevCumulativeTotalSaved;
     }
     
-    stats.sessions[existingIndex] = summary;
-  } else {
-    stats.sessions.push(summary);
-    // Keep current totals, we will add the new session's values below if not re-entering
-    stats.cumulative.tokensSkippedBySelection = prevCumulativeTokensSkipped;
-    stats.cumulative.tokensTrimmedFromHistory = prevCumulativeTokensTrimmedHistory;
-    stats.cumulative.tokensTrimmedCarlyBlocks = prevCumulativeTokensTrimmedCarlyBlocks;
-    stats.cumulative.tokensInjected = prevCumulativeTokensInjected;
-    stats.cumulative.totalTokensSaved = prevCumulativeTotalSaved;
-  }
-  
-  // Add the newly updated or pushed session to the cumulative totals
-  if (!isReEntering) {
-    stats.cumulative.tokensSkippedBySelection += summary.tokensSkippedBySelection || 0;
-    stats.cumulative.tokensTrimmedFromHistory += summary.tokensTrimmedFromHistory || 0;
-    stats.cumulative.tokensTrimmedCarlyBlocks += summary.tokensTrimmedCarlyBlocks || 0;
-    stats.cumulative.tokensInjected += summary.tokensInjected || 0;
-    stats.cumulative.totalTokensSaved += summary.tokensSaved || 0;
-  }
-
-  // Filter based on trackDuration
-  if (trackDuration !== "all") {
-    const cutoff = new Date();
-    if (trackDuration === "week") {
-      cutoff.setDate(cutoff.getDate() - 7);
-    } else if (trackDuration === "month") {
-      cutoff.setMonth(cutoff.getMonth() - 1);
+    // Add the newly updated or pushed session to the cumulative totals
+    if (!isReEntering) {
+      stats.cumulative.tokensSkippedBySelection += summary.tokensSkippedBySelection || 0;
+      stats.cumulative.tokensTrimmedFromHistory += summary.tokensTrimmedFromHistory || 0;
+      stats.cumulative.tokensTrimmedCarlyBlocks += summary.tokensTrimmedCarlyBlocks || 0;
+      stats.cumulative.tokensInjected += summary.tokensInjected || 0;
+      stats.cumulative.totalTokensSaved += summary.tokensSaved || 0;
+    } else if (currentDelta) {
+      // If re-entering, only add the delta from the current prompt to avoid double-counting history
+      stats.cumulative.tokensSkippedBySelection += currentDelta.tokensSkippedBySelection || 0;
+      stats.cumulative.tokensTrimmedFromHistory += currentDelta.tokensTrimmedFromHistory || 0;
+      stats.cumulative.tokensTrimmedCarlyBlocks += currentDelta.tokensTrimmedCarlyBlocks || 0;
+      stats.cumulative.tokensInjected += currentDelta.tokensInjected || 0;
+      stats.cumulative.totalTokensSaved += currentDelta.tokensSaved || 0;
     }
-    const cutoffTime = cutoff.getTime();
-    stats.sessions = stats.sessions.filter(s => new Date(s.lastActivity || s.date).getTime() >= cutoffTime);
-    stats.cumulative = calculateCumulativeStats(stats.sessions);
-  }
 
-  // Limit array size to prevent unbounded growth (max 100)
-  stats.sessions.sort((a, b) => {
-    const timeA = new Date(a.lastActivity || a.date).getTime();
-    const timeB = new Date(b.lastActivity || b.date).getTime();
-    return timeB - timeA;
-  });
-  if (stats.sessions.length > 100) {
-    stats.sessions = stats.sessions.slice(0, 100);
+    // Filter based on trackDuration
+    if (trackDuration !== "all") {
+      const cutoff = new Date();
+      if (trackDuration === "week") {
+        cutoff.setDate(cutoff.getDate() - 7);
+      } else if (trackDuration === "month") {
+        cutoff.setMonth(cutoff.getMonth() - 1);
+      }
+      const cutoffTime = cutoff.getTime();
+      stats.sessions = stats.sessions.filter(s => new Date(s.lastActivity || s.date).getTime() >= cutoffTime);
+      stats.cumulative = calculateCumulativeStats(stats.sessions);
+    }
+
+    // Limit array size to prevent unbounded growth (max 100)
+    stats.sessions.sort((a, b) => {
+      const timeA = new Date(a.lastActivity || a.date).getTime();
+      const timeB = new Date(b.lastActivity || b.date).getTime();
+      return timeB - timeA;
+    });
+    if (stats.sessions.length > 100) {
+      stats.sessions = stats.sessions.slice(0, 100);
+    }
+    
+    await saveCumulativeStats(configPath, stats);
+    return stats;
+  } finally {
+    release();
   }
-  
-  await saveCumulativeStats(configPath, stats);
-  return stats;
 }
 
 export type { CumulativeStats } from "../config/schema";

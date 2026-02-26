@@ -1,13 +1,49 @@
 {
   "version": 1,
   "cumulative": {
-    "tokensSkippedBySelection": 75072,
-    "tokensInjected": 24990,
+    "tokensSkippedBySelection": 78063,
+    "tokensInjected": 26563,
     "tokensTrimmedFromHistory": 9327330,
     "tokensTrimmedCarlyBlocks": 0,
-    "totalTokensSaved": 9402402
+    "totalTokensSaved": 9405393
   },
   "sessions": [
+    {
+      "sessionId": "ses_363a684bfffefXxROiZXl3FqfQ",
+      "date": "2026-02-26T23:47:15.905Z",
+      "lastActivity": "2026-02-26T23:47:15.905Z",
+      "tokensSaved": 644,
+      "promptsProcessed": 1,
+      "tokensSkippedBySelection": 644,
+      "tokensTrimmedFromHistory": 0,
+      "tokensTrimmedCarlyBlocks": 0,
+      "tokensInjected": 497,
+      "rulesInjected": 32
+    },
+    {
+      "sessionId": "ses_363e7ff05ffe3wPhfF1aJ8Qb1r",
+      "date": "2026-02-26T22:35:44.776Z",
+      "lastActivity": "2026-02-26T23:46:18.021Z",
+      "tokensSaved": 6562,
+      "promptsProcessed": 8,
+      "tokensSkippedBySelection": 6562,
+      "tokensTrimmedFromHistory": 0,
+      "tokensTrimmedCarlyBlocks": 0,
+      "tokensInjected": 2566,
+      "rulesInjected": 158
+    },
+    {
+      "sessionId": "ses_363ab1ad6ffehmdwn0PT9g6Z7K",
+      "date": "2026-02-26T23:42:15.340Z",
+      "lastActivity": "2026-02-26T23:42:15.340Z",
+      "tokensSaved": 769,
+      "promptsProcessed": 1,
+      "tokensSkippedBySelection": 769,
+      "tokensTrimmedFromHistory": 0,
+      "tokensTrimmedCarlyBlocks": 0,
+      "tokensInjected": 372,
+      "rulesInjected": 23
+    },
     {
       "sessionId": "ses_363b0f4a2ffeIQsbML3mxkPFmp",
       "date": "2026-02-26T23:35:51.903Z",
@@ -67,18 +103,6 @@
       "tokensTrimmedCarlyBlocks": 0,
       "tokensInjected": 603,
       "rulesInjected": 40
-    },
-    {
-      "sessionId": "ses_363e7ff05ffe3wPhfF1aJ8Qb1r",
-      "date": "2026-02-26T22:35:44.776Z",
-      "lastActivity": "2026-02-26T23:32:52.546Z",
-      "tokensSaved": 4984,
-      "promptsProcessed": 6,
-      "tokensSkippedBySelection": 4984,
-      "tokensTrimmedFromHistory": 0,
-      "tokensTrimmedCarlyBlocks": 0,
-      "tokensInjected": 1862,
-      "rulesInjected": 114
     },
     {
       "sessionId": "ses_363ce928cffegSLeYA19nXzEAu",
