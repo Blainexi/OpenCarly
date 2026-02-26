@@ -251,6 +251,7 @@ function readJsonFileSafe(filePath: string): unknown {
 interface SessionFileData {
   id: string;
   started: string;
+  lastActivity?: string;
   promptCount: number;
   tokenStats: TokenStats;
 }
@@ -375,6 +376,7 @@ export function loadCumulativeStats(
         sessionMap.set(sessionData.id, {
           sessionId: sessionData.id,
           date: sessionData.started,
+          lastActivity: sessionData.lastActivity || sessionData.started,
           tokensSaved: calculateTokensSaved(sessionData.tokenStats),
           promptsProcessed: sessionData.promptCount || 0,
           tokensSkippedBySelection: sessionData.tokenStats.tokensSkippedBySelection || 0,
@@ -400,7 +402,7 @@ export function loadCumulativeStats(
       cutoff.setMonth(cutoff.getMonth() - 1);
     }
     const cutoffTime = cutoff.getTime();
-    sessions = sessions.filter(s => new Date(s.date).getTime() >= cutoffTime);
+    sessions = sessions.filter(s => new Date(s.lastActivity || s.date).getTime() >= cutoffTime);
     
     // For specific durations, recalculate to only include sessions within the timeframe
     cumulative = calculateCumulativeStats(sessions);
@@ -409,7 +411,11 @@ export function loadCumulativeStats(
     cumulative = { ...statsJson.cumulative };
   }
   
-  sessions.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  sessions.sort((a, b) => {
+    const timeA = new Date(a.lastActivity || a.date).getTime();
+    const timeB = new Date(b.lastActivity || b.date).getTime();
+    return timeB - timeA;
+  });
   if (sessions.length > 100) {
     sessions = sessions.slice(0, 100);
   }
@@ -480,6 +486,7 @@ export function updateCumulativeStats(
   const summary: CumulativeSessionSummary = {
     sessionId: session.id,
     date: session.started,
+    lastActivity: session.lastActivity,
     tokensSaved,
     promptsProcessed: session.tokenStats.promptsProcessed,
     tokensSkippedBySelection: session.tokenStats.tokensSkippedBySelection,
@@ -532,12 +539,16 @@ export function updateCumulativeStats(
       cutoff.setMonth(cutoff.getMonth() - 1);
     }
     const cutoffTime = cutoff.getTime();
-    stats.sessions = stats.sessions.filter(s => new Date(s.date).getTime() >= cutoffTime);
+    stats.sessions = stats.sessions.filter(s => new Date(s.lastActivity || s.date).getTime() >= cutoffTime);
     stats.cumulative = calculateCumulativeStats(stats.sessions);
   }
 
   // Limit array size to prevent unbounded growth (max 100)
-  stats.sessions.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  stats.sessions.sort((a, b) => {
+    const timeA = new Date(a.lastActivity || a.date).getTime();
+    const timeB = new Date(b.lastActivity || b.date).getTime();
+    return timeB - timeA;
+  });
   if (stats.sessions.length > 100) {
     stats.sessions = stats.sessions.slice(0, 100);
   }

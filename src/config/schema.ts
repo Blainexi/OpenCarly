@@ -211,6 +211,7 @@ export type TokenStats = z.infer<typeof TokenStatsSchema>;
 export const CumulativeSessionSummarySchema = z.object({
   sessionId: z.string(),
   date: z.string(),
+  lastActivity: z.string().optional(),
   tokensSaved: z.number(),
   promptsProcessed: z.number(),
   tokensSkippedBySelection: z.number().default(0),

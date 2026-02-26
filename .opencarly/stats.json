@@ -1,104 +1,60 @@
 {
   "version": 1,
   "cumulative": {
-    "tokensSkippedBySelection": 59293,
-    "tokensInjected": 17949,
+    "tokensSkippedBySelection": 62574,
+    "tokensInjected": 19232,
     "tokensTrimmedFromHistory": 9327330,
     "tokensTrimmedCarlyBlocks": 0,
-    "totalTokensSaved": 9386623
+    "totalTokensSaved": 9389904
   },
   "sessions": [
     {
-      "sessionId": "ses_387f9c45affedTtBx3a72wbT8W",
-      "date": "2026-02-19T22:30:00.368Z",
-      "tokensSaved": 104926,
+      "sessionId": "ses_363da9a48ffe692yZQFAWfLZ6P",
+      "date": "2026-02-26T22:50:22.525Z",
+      "tokensSaved": 789,
       "promptsProcessed": 1,
-      "tokensSkippedBySelection": 934,
-      "tokensTrimmedFromHistory": 103992,
-      "tokensTrimmedCarlyBlocks": 0,
-      "tokensInjected": 238,
-      "rulesInjected": 16
-    },
-    {
-      "sessionId": "ses_38470067bfferNBKJ1P4FTZhxA",
-      "date": "2026-02-20T14:59:19.048Z",
-      "tokensSaved": 2772,
-      "promptsProcessed": 3,
-      "tokensSkippedBySelection": 2772,
-      "tokensTrimmedFromHistory": 0,
-      "tokensTrimmedCarlyBlocks": 0,
-      "tokensInjected": 744,
-      "rulesInjected": 51
-    },
-    {
-      "sessionId": "ses_383b08550ffeOo9AAQkv4l63X1",
-      "date": "2026-02-20T18:28:29.494Z",
-      "tokensSaved": 5997144,
-      "promptsProcessed": 27,
-      "tokensSkippedBySelection": 25272,
-      "tokensTrimmedFromHistory": 5971872,
-      "tokensTrimmedCarlyBlocks": 0,
-      "tokensInjected": 6372,
-      "rulesInjected": 450
-    },
-    {
-      "sessionId": "ses_3837e8349ffegKB0pRKq0nekOm",
-      "date": "2026-02-20T19:23:06.809Z",
-      "tokensSaved": 227289,
-      "promptsProcessed": 1,
-      "tokensSkippedBySelection": 1003,
-      "tokensTrimmedFromHistory": 226286,
-      "tokensTrimmedCarlyBlocks": 0,
-      "tokensInjected": 169,
-      "rulesInjected": 12
-    },
-    {
-      "sessionId": "ses_37809084dffeUpQ593U5RIdREU",
-      "date": "2026-02-23T00:47:15.388Z",
-      "tokensSaved": 2877615,
-      "promptsProcessed": 15,
-      "tokensSkippedBySelection": 13316,
-      "tokensTrimmedFromHistory": 2864299,
-      "tokensTrimmedCarlyBlocks": 0,
-      "tokensInjected": 4264,
-      "rulesInjected": 281
-    },
-    {
-      "sessionId": "ses_377d95b3bffe54EQ75nvhHpH93",
-      "date": "2026-02-23T01:39:19.909Z",
-      "tokensSaved": 1827,
-      "promptsProcessed": 2,
-      "tokensSkippedBySelection": 1827,
-      "tokensTrimmedFromHistory": 0,
-      "tokensTrimmedCarlyBlocks": 0,
-      "tokensInjected": 635,
-      "rulesInjected": 38
-    },
-    {
-      "sessionId": "ses_36471cc6effeQLAsAUJxqJ76P1",
-      "date": "2026-02-26T20:05:13.755Z",
-      "tokensSaved": 879,
-      "promptsProcessed": 1,
-      "tokensSkippedBySelection": 879,
+      "tokensSkippedBySelection": 789,
       "tokensTrimmedFromHistory": 0,
       "tokensTrimmedCarlyBlocks": 0,
       "tokensInjected": 352,
       "rulesInjected": 22
     },
     {
-      "sessionId": "ses_36470f3d1ffeh6257u1aDcCWRn",
-      "date": "2026-02-26T20:06:09.206Z",
-      "tokensSaved": 162639,
-      "promptsProcessed": 2,
-      "tokensSkippedBySelection": 1758,
-      "tokensTrimmedFromHistory": 160881,
+      "sessionId": "ses_363e7ff05ffe3wPhfF1aJ8Qb1r",
+      "date": "2026-02-26T22:35:44.776Z",
+      "tokensSaved": 2492,
+      "promptsProcessed": 3,
+      "tokensSkippedBySelection": 2492,
+      "tokensTrimmedFromHistory": 0,
       "tokensTrimmedCarlyBlocks": 0,
-      "tokensInjected": 704,
-      "rulesInjected": 44
+      "tokensInjected": 931,
+      "rulesInjected": 57
     },
     {
-      "sessionId": "ses_36460a075ffeRvNfIlfnaBN7aM",
-      "date": "2026-02-26T20:23:59.121Z",
+      "sessionId": "ses_36415be7fffeXVpShSRZ237sNB",
+      "date": "2026-02-26T21:45:46.627Z",
+      "tokensSaved": 4645,
+      "promptsProcessed": 5,
+      "tokensSkippedBySelection": 4645,
+      "tokensTrimmedFromHistory": 0,
+      "tokensTrimmedCarlyBlocks": 0,
+      "tokensInjected": 1510,
+      "rulesInjected": 92
+    },
+    {
+      "sessionId": "ses_3641da46bffe4J5e6XvZkwbSwr",
+      "date": "2026-02-26T21:37:09.019Z",
+      "tokensSaved": 734,
+      "promptsProcessed": 1,
+      "tokensSkippedBySelection": 734,
+      "tokensTrimmedFromHistory": 0,
+      "tokensTrimmedCarlyBlocks": 0,
+      "tokensInjected": 497,
+      "rulesInjected": 32
+    },
+    {
+      "sessionId": "ses_36440453cffedH1sXYanJH7FCr",
+      "date": "2026-02-26T20:59:19.624Z",
       "tokensSaved": 1758,
       "promptsProcessed": 2,
       "tokensSkippedBySelection": 1758,
@@ -119,8 +75,8 @@
       "rulesInjected": 66
     },
     {
-      "sessionId": "ses_36440453cffedH1sXYanJH7FCr",
-      "date": "2026-02-26T20:59:19.624Z",
+      "sessionId": "ses_36460a075ffeRvNfIlfnaBN7aM",
+      "date": "2026-02-26T20:23:59.121Z",
       "tokensSaved": 1758,
       "promptsProcessed": 2,
       "tokensSkippedBySelection": 1758,
@@ -130,26 +86,92 @@
       "rulesInjected": 44
     },
     {
-      "sessionId": "ses_3641da46bffe4J5e6XvZkwbSwr",
-      "date": "2026-02-26T21:37:09.019Z",
-      "tokensSaved": 734,
-      "promptsProcessed": 1,
-      "tokensSkippedBySelection": 734,
-      "tokensTrimmedFromHistory": 0,
+      "sessionId": "ses_36470f3d1ffeh6257u1aDcCWRn",
+      "date": "2026-02-26T20:06:09.206Z",
+      "tokensSaved": 162639,
+      "promptsProcessed": 2,
+      "tokensSkippedBySelection": 1758,
+      "tokensTrimmedFromHistory": 160881,
       "tokensTrimmedCarlyBlocks": 0,
-      "tokensInjected": 497,
-      "rulesInjected": 32
+      "tokensInjected": 704,
+      "rulesInjected": 44
     },
     {
-      "sessionId": "ses_36415be7fffeXVpShSRZ237sNB",
-      "date": "2026-02-26T21:45:46.627Z",
-      "tokensSaved": 4645,
-      "promptsProcessed": 5,
-      "tokensSkippedBySelection": 4645,
+      "sessionId": "ses_36471cc6effeQLAsAUJxqJ76P1",
+      "date": "2026-02-26T20:05:13.755Z",
+      "tokensSaved": 879,
+      "promptsProcessed": 1,
+      "tokensSkippedBySelection": 879,
       "tokensTrimmedFromHistory": 0,
       "tokensTrimmedCarlyBlocks": 0,
-      "tokensInjected": 1510,
-      "rulesInjected": 92
+      "tokensInjected": 352,
+      "rulesInjected": 22
+    },
+    {
+      "sessionId": "ses_377d95b3bffe54EQ75nvhHpH93",
+      "date": "2026-02-23T01:39:19.909Z",
+      "tokensSaved": 1827,
+      "promptsProcessed": 2,
+      "tokensSkippedBySelection": 1827,
+      "tokensTrimmedFromHistory": 0,
+      "tokensTrimmedCarlyBlocks": 0,
+      "tokensInjected": 635,
+      "rulesInjected": 38
+    },
+    {
+      "sessionId": "ses_37809084dffeUpQ593U5RIdREU",
+      "date": "2026-02-23T00:47:15.388Z",
+      "tokensSaved": 2877615,
+      "promptsProcessed": 15,
+      "tokensSkippedBySelection": 13316,
+      "tokensTrimmedFromHistory": 2864299,
+      "tokensTrimmedCarlyBlocks": 0,
+      "tokensInjected": 4264,
+      "rulesInjected": 281
+    },
+    {
+      "sessionId": "ses_3837e8349ffegKB0pRKq0nekOm",
+      "date": "2026-02-20T19:23:06.809Z",
+      "tokensSaved": 227289,
+      "promptsProcessed": 1,
+      "tokensSkippedBySelection": 1003,
+      "tokensTrimmedFromHistory": 226286,
+      "tokensTrimmedCarlyBlocks": 0,
+      "tokensInjected": 169,
+      "rulesInjected": 12
+    },
+    {
+      "sessionId": "ses_383b08550ffeOo9AAQkv4l63X1",
+      "date": "2026-02-20T18:28:29.494Z",
+      "tokensSaved": 5997144,
+      "promptsProcessed": 27,
+      "tokensSkippedBySelection": 25272,
+      "tokensTrimmedFromHistory": 5971872,
+      "tokensTrimmedCarlyBlocks": 0,
+      "tokensInjected": 6372,
+      "rulesInjected": 450
+    },
+    {
+      "sessionId": "ses_38470067bfferNBKJ1P4FTZhxA",
+      "date": "2026-02-20T14:59:19.048Z",
+      "tokensSaved": 2772,
+      "promptsProcessed": 3,
+      "tokensSkippedBySelection": 2772,
+      "tokensTrimmedFromHistory": 0,
+      "tokensTrimmedCarlyBlocks": 0,
+      "tokensInjected": 744,
+      "rulesInjected": 51
+    },
+    {
+      "sessionId": "ses_387f9c45affedTtBx3a72wbT8W",
+      "date": "2026-02-19T22:30:00.368Z",
+      "tokensSaved": 104926,
+      "promptsProcessed": 1,
+      "tokensSkippedBySelection": 934,
+      "tokensTrimmedFromHistory": 103992,
+      "tokensTrimmedCarlyBlocks": 0,
+      "tokensInjected": 238,
+      "rulesInjected": 16
     }
   ]
 }
