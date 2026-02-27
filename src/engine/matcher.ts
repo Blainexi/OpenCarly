@@ -94,6 +94,20 @@ function extractPathsFromPrompt(prompt: string): string[] {
 // Keyword matching
 // ---------------------------------------------------------------------------
 
+const regexCache = new Map<string, RegExp>();
+
+function getCachedRegex(keywordLower: string): RegExp {
+  if (regexCache.has(keywordLower)) return regexCache.get(keywordLower)!;
+  
+  const escaped = keywordLower.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const prefix = "(?<=^|\\W)";
+  const suffix = "(?=\\W|$)";
+  const regex = new RegExp(prefix + escaped + suffix, "i");
+  
+  regexCache.set(keywordLower, regex);
+  return regex;
+}
+
 /**
  * Check if any keywords from the list appear in the prompt (case-insensitive substring match).
  * Returns the list of matching keywords.
@@ -109,12 +123,9 @@ function findMatchingKeywords(
     const keywordLower = keyword.toLowerCase().trim();
     if (keywordLower === "") continue;
 
-    // Boundary match using lookarounds
-    const escaped = keywordLower.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const prefix = "(?<=^|\\W)";
-    const suffix = "(?=\\W|$)";
-    
-    const regex = new RegExp(prefix + escaped + suffix, "i");
+    if (!promptLower.includes(keywordLower)) continue;
+
+    const regex = getCachedRegex(keywordLower);
     if (regex.test(promptLower)) {
       matches.push(keyword);
     }
