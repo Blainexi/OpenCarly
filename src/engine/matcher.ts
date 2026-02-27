@@ -76,18 +76,23 @@ export function isPathMatch(filePath: string, patterns: string[]): boolean {
  * Looks for words containing `/` or a file extension (like `.ts`).
  */
 function extractPathsFromPrompt(prompt: string): string[] {
-  const words = prompt.split(/\s+/);
-  const paths: string[] = [];
+  const paths = new Set<string>();
   
-  for (const word of words) {
-    // Strip trailing punctuation and line numbers/colons
-    const cleanWord = word.replace(/[:,][0-9]+(?:[:,][0-9]+)?$/, "").replace(/[.,;:!?)$'"]+$/, "").replace(/^['"(]+/, "");
+  // Use matchAll to avoid allocating a huge array from split()
+  const matches = prompt.matchAll(/\S+/g);
+  for (const match of matches) {
+    const word = match[0];
+    let cleanWord = word.replace(/[:,][0-9]+(?:[:,][0-9]+)?$/, "").replace(/[.,;:!?)$'"]+$/, "").replace(/^['"(]+/, "");
+    
+    // Force V8 to allocate a new flat string instead of retaining a slice of the potentially massive prompt
+    cleanWord = Buffer.from(cleanWord).toString();
+    
     if (cleanWord.includes("/") || /\.(ts|js|jsx|tsx|py|go|rs|java|c|cpp|h|hpp|md|json|yml|yaml|txt|sh|html|css|scss|less|toml)$/i.test(cleanWord)) {
-      paths.push(cleanWord);
+      paths.add(cleanWord);
     }
   }
   
-  return [...new Set(paths)];
+  return Array.from(paths);
 }
 
 // ---------------------------------------------------------------------------
