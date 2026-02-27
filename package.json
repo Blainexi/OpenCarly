@@ -1,6 +1,6 @@
 {
   "name": "opencarly",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "type": "module",
   "description": "Context Augmentation & Reinforcement Layer for OpenCode - Dynamic rules that load when relevant, disappear when not.",
   "main": "dist/index.js",
