@@ -28,6 +28,7 @@ async function atomicWrite(filePath: string, data: string): Promise<void> {
   }
 }
 
+
 class Mutex {
   private queue: Array<() => void> = [];
   private locked = false;
