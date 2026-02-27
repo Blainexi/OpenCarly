@@ -156,8 +156,8 @@ export async function loadConfig(configPath: string): Promise<CarlyConfig> {
 /**
  * Parse a domain rule file (.md).
  *
- * Extracts rules from bullet points (lines starting with "- ").
- * Ignores headings (#), empty lines, and other markdown.
+ * Extracts rules from bullet points (lines starting with "- ") and free text.
+ * Ignores headings (#) and empty lines.
  */
 export async function parseDomainFile(filePath: string): Promise<string[]> {
   let content: string;
@@ -190,10 +190,9 @@ export async function parseDomainFile(filePath: string): Promise<string[]> {
     }
 
     // A list marker starts a new rule ONLY if it's not indented (starts at beginning of line)
-    const isTopLevelList = /^(?:[-*+]|\d+\.)\s+/.test(line); // Check original line, not trimmed
     const match = line.match(/^([-*+]|\d+\.)\s+(.*)/);
     
-    if (!inCodeBlock && isTopLevelList && match) {
+    if (!inCodeBlock && match) {
       if (currentRule) {
         rules.push(currentRule.trim());
       }
@@ -202,6 +201,9 @@ export async function parseDomainFile(filePath: string): Promise<string[]> {
       // If we're inside a rule, append the line (preserve leading spaces for code blocks and nested lists)
       if (currentRule) {
         currentRule += "\n" + line;
+      } else if (trimmed !== "") {
+        // Fix: If we aren't in a rule yet but encounter text, start a new rule
+        currentRule = line;
       }
     }
   }
