@@ -128,20 +128,36 @@ export async function getOrCreateSession(
   return { session, isNew: true };
 }
 
+const pendingSessionWrites = new Map<string, NodeJS.Timeout>();
+
 /**
- * Save a session to disk.
+ * Save a session to disk (debounced).
  */
 export async function saveSession(
   configPath: string,
   session: SessionConfig
 ): Promise<void> {
-  const release = await sessionMutex.acquire();
-  try {
-    const filePath = await getSessionFilePath(configPath, session.id);
-    await atomicWrite(filePath, JSON.stringify(session, null, 2));
-  } finally {
-    release();
+  const sessionId = session.id;
+  if (pendingSessionWrites.has(sessionId)) {
+    clearTimeout(pendingSessionWrites.get(sessionId)!);
   }
+
+  // Deep clone to prevent concurrent modification issues before the timeout fires
+  const sessionClone = JSON.parse(JSON.stringify(session));
+
+  pendingSessionWrites.set(
+    sessionId,
+    setTimeout(async () => {
+      pendingSessionWrites.delete(sessionId);
+      const release = await sessionMutex.acquire();
+      try {
+        const filePath = await getSessionFilePath(configPath, sessionClone.id);
+        await atomicWrite(filePath, JSON.stringify(sessionClone, null, 2));
+      } finally {
+        release();
+      }
+    }, 1000)
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -178,20 +194,35 @@ export function applySessionOverrides(
   manifest: Manifest,
   session: SessionConfig
 ): Manifest {
-  // Deep clone the manifest to avoid mutating the original
-  const result: Manifest = JSON.parse(JSON.stringify(manifest));
+  const hasDevmodeOverride = session.overrides.devmode !== null;
+  const hasDomainOverrides = Object.keys(session.overrides.domainStates).length > 0;
+  
+  if (!hasDevmodeOverride && !hasDomainOverrides) {
+    return manifest;
+  }
+
+  // Shallow clone the manifest
+  const result: Manifest = { ...manifest };
 
   // Override devmode if session has a non-null override
-  if (session.overrides.devmode !== null) {
-    result.devmode = session.overrides.devmode;
+  if (hasDevmodeOverride) {
+    result.devmode = session.overrides.devmode!;
   }
 
   // Override per-domain states
-  for (const [domainName, stateOverride] of Object.entries(
-    session.overrides.domainStates
-  )) {
-    if (stateOverride !== null && result.domains[domainName]) {
-      result.domains[domainName].state = stateOverride ? "active" : "inactive";
+  if (hasDomainOverrides) {
+    // Shallow clone the domains object so we can mutate specific domains
+    result.domains = { ...manifest.domains };
+    for (const [domainName, stateOverride] of Object.entries(
+      session.overrides.domainStates
+    )) {
+      if (stateOverride !== null && result.domains[domainName]) {
+        // Shallow clone the specific domain before mutating its state
+        result.domains[domainName] = { 
+          ...result.domains[domainName], 
+          state: stateOverride ? "active" : "inactive" 
+        };
+      }
     }
   }
 
@@ -223,16 +254,15 @@ export async function cleanStaleSessions(configPath: string): Promise<number> {
 
     const filePath = path.join(sessionsDir, file);
     try {
-      const raw = await fs.promises.readFile(filePath, "utf-8");
-      const session = JSON.parse(raw);
-      const lastActivity = new Date(session.lastActivity).getTime();
+      const stats = await fs.promises.stat(filePath);
+      const lastActivity = stats.mtimeMs;
 
-      if (isNaN(lastActivity) || lastActivity < cutoff) {
+      if (lastActivity < cutoff) {
         await fs.promises.rm(filePath, { recursive: true, force: true });
         cleaned++;
       }
     } catch {
-      // Remove corrupted files too
+      // Remove corrupted/unreadable files too
       try {
         await fs.promises.rm(filePath, { recursive: true, force: true });
         cleaned++;
@@ -448,6 +478,26 @@ export async function loadCumulativeStats(
   };
 }
 
+const pendingStatsWrites = new Map<string, NodeJS.Timeout>();
+
+async function debouncedAtomicWrite(filePath: string, data: string): Promise<void> {
+  if (pendingStatsWrites.has(filePath)) {
+    clearTimeout(pendingStatsWrites.get(filePath)!);
+  }
+  pendingStatsWrites.set(
+    filePath,
+    setTimeout(async () => {
+      pendingStatsWrites.delete(filePath);
+      const release = await sessionMutex.acquire();
+      try {
+        await atomicWrite(filePath, data);
+      } finally {
+        release();
+      }
+    }, 1000)
+  );
+}
+
 /**
  * Save cumulative stats to stats.json.
  */
@@ -455,13 +505,8 @@ export async function saveCumulativeStats(
   configPath: string,
   stats: CumulativeStats
 ): Promise<void> {
-  const release = await sessionMutex.acquire();
-  try {
-    const statsPath = getStatsFilePath(configPath);
-    await atomicWrite(statsPath, JSON.stringify(stats, null, 2));
-  } finally {
-    release();
-  }
+  const statsPath = getStatsFilePath(configPath);
+  await debouncedAtomicWrite(statsPath, JSON.stringify(stats, null, 2));
 }
 
 /**
@@ -505,18 +550,27 @@ export async function updateCumulativeStats(
     tokensTrimmedCarlyBlocks?: number;
     tokensInjected?: number;
     tokensSaved?: number;
-  }
+  },
+  memoryStats?: CumulativeStats
 ): Promise<CumulativeStats> {
-  const release = await sessionMutex.acquire();
-  try {
-    const statsPath = getStatsFilePath(configPath);
-    let stats: CumulativeStats;
+  const statsPath = getStatsFilePath(configPath);
+  let stats: CumulativeStats;
+  
+  if (memoryStats) {
+    stats = memoryStats;
+  } else {
+    const release = await sessionMutex.acquire();
     try {
-      const raw = await readJsonFileSafeAsync(statsPath);
-      stats = raw ? CumulativeStatsSchema.parse(raw) : { version: 1, cumulative: { tokensSkippedBySelection: 0, tokensInjected: 0, tokensTrimmedFromHistory: 0, tokensTrimmedCarlyBlocks: 0, totalTokensSaved: 0 }, sessions: [] };
-    } catch {
-      stats = { version: 1, cumulative: { tokensSkippedBySelection: 0, tokensInjected: 0, tokensTrimmedFromHistory: 0, tokensTrimmedCarlyBlocks: 0, totalTokensSaved: 0 }, sessions: [] };
+      try {
+        const raw = await readJsonFileSafeAsync(statsPath);
+        stats = raw ? CumulativeStatsSchema.parse(raw) : { version: 1, cumulative: { tokensSkippedBySelection: 0, tokensInjected: 0, tokensTrimmedFromHistory: 0, tokensTrimmedCarlyBlocks: 0, totalTokensSaved: 0 }, sessions: [] };
+      } catch {
+        stats = { version: 1, cumulative: { tokensSkippedBySelection: 0, tokensInjected: 0, tokensTrimmedFromHistory: 0, tokensTrimmedCarlyBlocks: 0, totalTokensSaved: 0 }, sessions: [] };
+      }
+    } finally {
+      release();
     }
+  }
     
     const tokensSaved = calculateTokensSaved(session.tokenStats);
     const existingIndex = stats.sessions.findIndex(s => s.sessionId === session.id);
@@ -614,11 +668,8 @@ export async function updateCumulativeStats(
       stats.sessions = stats.sessions.slice(0, 100);
     }
     
-    await atomicWrite(statsPath, JSON.stringify(stats, null, 2));
+    await debouncedAtomicWrite(statsPath, JSON.stringify(stats, null, 2));
     return stats;
-  } finally {
-    release();
-  }
 }
 
 export type { CumulativeStats } from "../config/schema";

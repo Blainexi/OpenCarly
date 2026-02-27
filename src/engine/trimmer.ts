@@ -82,6 +82,7 @@ interface FileOp {
 
 class TrimContext {
   private fileOps: Map<string, FileOp[]> = new Map();
+  private baseNames: Map<string, string> = new Map();
 
   constructor(messages: TransformMessage[]) {
     for (let mi = 0; mi < messages.length; mi++) {
@@ -97,7 +98,7 @@ class TrimContext {
             const isReadOnly = /^\s*(cat|grep|tail|head|ls|find)\s/.test(command);
             if (!isReadOnly) {
               for (const knownPath of this.fileOps.keys()) {
-                const basename = knownPath.split("/").pop() || knownPath;
+                const basename = this.baseNames.get(knownPath) || knownPath;
                 if (command.includes(knownPath) || command.includes(basename)) {
                   this.fileOps.get(knownPath)!.push({ messageIndex: mi, op: "edit" });
                 }
@@ -117,6 +118,7 @@ class TrimContext {
             ops.push(entry);
           } else {
             this.fileOps.set(filePath, [entry]);
+            this.baseNames.set(filePath, filePath.split("/").pop() || filePath);
           }
         }
       }
@@ -257,7 +259,11 @@ function buildTrimSummary(toolPart: ToolPart, tokensSaved: number): string {
 
   if (toolPart.tool === "read") {
     const filePath = (toolPart.state.input.filePath as string) || "unknown file";
-    const lineCount = (anyState.output || "").split("\n").length;
+    const output = anyState.output || "";
+    let lineCount = 1;
+    for (let i = 0; i < output.length; i++) {
+      if (output[i] === '\n') lineCount++;
+    }
     return (
       `[Trimmed by OpenCarly] Read ${filePath} (${lineCount} lines, ~${tokensSaved} tokens saved)\n` +
       `Re-read this file if its contents are needed.`
@@ -320,7 +326,8 @@ export interface TrimStats {
  */
 export function trimMessageHistory(
   inputMessages: TransformMessage[],
-  config: TrimmingConfig
+  config: TrimmingConfig,
+  countedTrims?: Set<string>
 ): { stats: TrimStats; messages: TransformMessage[] } {
   const stats: TrimStats = {
     partsTrimmed: 0,
@@ -334,68 +341,72 @@ export function trimMessageHistory(
     return { stats, messages: inputMessages };
   }
 
-  // Safely clone only the parts of the message tree we intend to mutate
-  const messages: TransformMessage[] = inputMessages.map((msg) => {
-    // Clone the message wrapper
-    const newMsg = { ...msg };
-    // Clone the parts array
-    newMsg.parts = msg.parts.map((part) => {
-      if (part.type === "text") {
-        // Text parts will have their .text modified
-        return { ...part };
-      }
-      if (part.type === "tool") {
-        const toolPart = part as ToolPart;
-        // Tool parts will have their .state modified
-        const newToolPart: ToolPart = { ...toolPart };
-        newToolPart.state = { ...toolPart.state };
-        
-        // Only completed/error states have output/error properties we might change
-        if (newToolPart.state.status === "completed" || newToolPart.state.status === "error") {
-            const anyState = newToolPart.state as any;
-            if (anyState.time) {
-              anyState.time = { ...anyState.time };
-            }
-        }
-        return newToolPart;
-      }
-      // Other parts are untouched
-      return part;
-    });
-    return newMsg;
-  });
-
-  const context = new TrimContext(messages);
-  const totalMessages = messages.length;
+  const context = new TrimContext(inputMessages);
+  const totalMessages = inputMessages.length;
 
   stats.activeFiles = context.getRecentFiles(totalMessages, 5);
 
-  if (!config.enabled) return { stats, messages };
+  if (!config.enabled) return { stats, messages: inputMessages };
 
   const threshold = TRIM_THRESHOLDS[config.mode] ?? 40;
   const protectedStart = Math.max(0, totalMessages - config.preserveLastN);
 
+  const messages = [...inputMessages];
+  let messagesCloned = false;
+
+  const getMutablePart = (mi: number, pi: number) => {
+    if (!messagesCloned) messagesCloned = true;
+    if (messages[mi] === inputMessages[mi]) {
+      messages[mi] = { ...messages[mi] };
+      messages[mi].parts = [...messages[mi].parts];
+    }
+    const msg = messages[mi];
+    if (msg.parts[pi] === inputMessages[mi].parts[pi]) {
+      const part = { ...msg.parts[pi] };
+      if (part.type === "tool") {
+        const toolPart = part as ToolPart;
+        toolPart.state = { ...toolPart.state };
+        if (toolPart.state.status === "completed" || toolPart.state.status === "error") {
+            const anyState = toolPart.state as any;
+            if (anyState.time) {
+              anyState.time = { ...anyState.time };
+            }
+        }
+      }
+      msg.parts[pi] = part;
+    }
+    return msg.parts[pi];
+  };
+
   // Step 2: Process each message
   for (let mi = 0; mi < totalMessages; mi++) {
-    const message = messages[mi];
+    const message = inputMessages[mi];
 
     for (let pi = 0; pi < message.parts.length; pi++) {
       const part = message.parts[pi];
 
       // --- Strip <carly-rules> from text parts (all messages) ---
-      if (part.type === "text") {
+      if (part.type === "text" && message.info?.role !== "user") {
         const textPart = part as TextPart;
         if (typeof textPart.text === "string" && textPart.text.includes("<carly-rules>")) {
           const tokensBefore = estimateTokens(textPart.text);
-          const textBefore = textPart.text;
-          textPart.text = textPart.text
+          const newText = textPart.text
             .replace(/<carly-rules>[\s\S]*?(?:<\/carly-rules>|$)/g, "")
             .trim();
           
-          if (textPart.text !== textBefore) {
-            const tokensAfter = estimateTokens(textPart.text);
-            stats.carlyBlocksStripped++;
-            stats.carlyTokensSaved += Math.max(0, tokensBefore - tokensAfter);
+          if (newText !== textPart.text) {
+            const tokensAfter = estimateTokens(newText);
+            const saved = Math.max(0, tokensBefore - tokensAfter);
+            
+            const trimId = `text-${message.info?.time?.created}-${pi}`;
+            if (!countedTrims || !countedTrims.has(trimId)) {
+              stats.carlyBlocksStripped++;
+              stats.carlyTokensSaved += saved;
+              if (countedTrims) countedTrims.add(trimId);
+            }
+            
+            const mutablePart = getMutablePart(mi, pi) as TextPart;
+            mutablePart.text = newText;
           }
         }
         continue;
@@ -415,22 +426,30 @@ export function trimMessageHistory(
         const tokensBefore = estimateTokens(outputText);
         const summary = buildTrimSummary(toolPart, tokensBefore);
         const tokensAfter = estimateTokens(summary);
-
-        // Replace output with summary
-        if (typeof anyState.error === "string") {
-          anyState.error = summary;
-        } else {
-          anyState.output = summary;
+        const saved = Math.max(0, tokensBefore - tokensAfter);
+        
+        const trimId = `tool-${toolPart.callID || (message.info?.time?.created + '-' + pi)}`;
+        if (!countedTrims || !countedTrims.has(trimId)) {
+          stats.partsTrimmed++;
+          stats.tokensSaved += saved;
+          if (countedTrims) countedTrims.add(trimId);
         }
 
-        if (!anyState.time) anyState.time = { start: 0, end: 0 };
-        anyState.time.compacted = Date.now();
+        const mutablePart = getMutablePart(mi, pi) as ToolPart;
+        const mutableState = mutablePart.state as any;
 
-        stats.partsTrimmed++;
-        stats.tokensSaved += Math.max(0, tokensBefore - tokensAfter);
+        // Replace output with summary
+        if (typeof mutableState.error === "string") {
+          mutableState.error = summary;
+        } else {
+          mutableState.output = summary;
+        }
+
+        if (!mutableState.time) mutableState.time = { start: 0, end: 0 };
+        mutableState.time.compacted = Date.now();
       }
     }
   }
 
-  return { stats, messages };
+  return { stats, messages: messagesCloned ? messages : inputMessages };
 }

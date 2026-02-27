@@ -78,14 +78,17 @@ export function isPathMatch(filePath: string, patterns: string[]): boolean {
 function extractPathsFromPrompt(prompt: string): string[] {
   const paths = new Set<string>();
   
-  // Use matchAll to avoid allocating a huge array from split()
-  const matches = prompt.matchAll(/\S+/g);
+  // Truncate to first 25k chars to prevent event loop blocking on huge pastes
+  const safePrompt = prompt.length > 25000 ? prompt.slice(0, 25000) : prompt;
+  
+  // Only match words that contain a slash or dot to skip 90%+ of normal text
+  const matches = safePrompt.matchAll(/\S*[\/\.]\S*/g);
   for (const match of matches) {
     const word = match[0];
     let cleanWord = word.replace(/[:,][0-9]+(?:[:,][0-9]+)?$/, "").replace(/[.,;:!?)$'"]+$/, "").replace(/^['"(]+/, "");
     
-    // Force V8 to allocate a new flat string instead of retaining a slice of the potentially massive prompt
-    cleanWord = Buffer.from(cleanWord).toString();
+    // Force V8 to allocate a new flat string safely without blocking the event loop with Buffer allocations
+    cleanWord = (' ' + cleanWord).slice(1);
     
     if (cleanWord.includes("/") || /\.(ts|js|jsx|tsx|py|go|rs|java|c|cpp|h|hpp|md|json|yml|yaml|txt|sh|html|css|scss|less|toml)$/i.test(cleanWord)) {
       paths.add(cleanWord);
@@ -105,8 +108,8 @@ function getCachedRegex(keywordLower: string): RegExp {
   if (regexCache.has(keywordLower)) return regexCache.get(keywordLower)!;
   
   const escaped = keywordLower.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const prefix = "(?<=^|\\W)";
-  const suffix = "(?=\\W|$)";
+  const prefix = "(?:^|\\W)";
+  const suffix = "(?:\\W|$)";
   const regex = new RegExp(prefix + escaped + suffix, "i");
   
   regexCache.set(keywordLower, regex);
@@ -168,6 +171,13 @@ export function matchDomains(
     alwaysOn: [],
   };
 
+  // Collect always-on domains first so they are never excluded by global exclude
+  for (const [name, domain] of Object.entries(manifest.domains)) {
+    if (domain.state === "active" && domain.alwaysOn) {
+      result.alwaysOn.push(name);
+    }
+  }
+
   // 1. Check global exclusions
   if (manifest.globalExclude.length > 0) {
     const globalMatches = findMatchingKeywords(prompt, manifest.globalExclude);
@@ -188,11 +198,8 @@ export function matchDomains(
     // Skip inactive domains
     if (domain.state === "inactive") continue;
 
-    // Collect always-on domains
-    if (domain.alwaysOn) {
-      result.alwaysOn.push(name);
-      continue; // always-on domains don't need keyword matching
-    }
+    // Skip always-on domains as they are already collected
+    if (domain.alwaysOn) continue;
 
     // Check per-domain exclusions
     if (domain.exclude.length > 0) {

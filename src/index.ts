@@ -47,6 +47,8 @@ interface PluginState {
   baselineTokensPerPrompt: number;
   /** Cumulative stats from all sessions (loaded from stats.json) */
   cumulativeStats: CumulativeStats;
+  /** Track which message trims have already been counted for stats */
+  sessionTrimState: Map<string, Set<string>>;
 }
 
 // ---------------------------------------------------------------------------
@@ -303,6 +305,7 @@ export const OpenCarly: Plugin = async ({ directory, client }) => {
     lastPrompt: new Map(),
     baselineTokensPerPrompt,
     cumulativeStats,
+    sessionTrimState: new Map(),
   };
 
   return {
@@ -375,6 +378,16 @@ export const OpenCarly: Plugin = async ({ directory, client }) => {
       // Cache for system.transform hook
       state.lastMatch.set(sessionID, matchResult);
       state.lastPrompt.set(sessionID, promptText);
+
+      // Prevent memory leaks if hooks are aborted
+      if (state.lastMatch.size > 50) {
+        const oldestMatchKey = state.lastMatch.keys().next().value;
+        if (oldestMatchKey) state.lastMatch.delete(oldestMatchKey);
+      }
+      if (state.lastPrompt.size > 50) {
+        const oldestPromptKey = state.lastPrompt.keys().next().value;
+        if (oldestPromptKey) state.lastPrompt.delete(oldestPromptKey);
+      }
 
       // Log match results
       await log("debug", "Prompt matched", {
@@ -477,7 +490,8 @@ export const OpenCarly: Plugin = async ({ directory, client }) => {
             discovery.configPath, 
             session, 
             state.config.context.stats.trackDuration,
-            currentDelta
+            currentDelta,
+            state.cumulativeStats
           );
         } catch {
           // Non-critical
@@ -519,15 +533,28 @@ export const OpenCarly: Plugin = async ({ directory, client }) => {
     // -----------------------------------------------------------------
     "experimental.chat.messages.transform": async (input, output) => {
       const trimConfig = state.config.context.trimming;
+      const sessionID = (input as any).sessionID as string | undefined;
+
+      let countedTrims: Set<string> | undefined;
+      if (sessionID) {
+        if (!state.sessionTrimState.has(sessionID)) {
+          state.sessionTrimState.set(sessionID, new Set());
+          if (state.sessionTrimState.size > 50) {
+            const oldestKey = state.sessionTrimState.keys().next().value;
+            if (oldestKey) state.sessionTrimState.delete(oldestKey);
+          }
+        }
+        countedTrims = state.sessionTrimState.get(sessionID);
+      }
 
       const trimResult = trimMessageHistory(
         output.messages as Parameters<typeof trimMessageHistory>[0],
-        trimConfig
+        trimConfig,
+        countedTrims
       );
       output.messages = trimResult.messages as any;
       const trimStats = trimResult.stats;
 
-      const sessionID = (input as any).sessionID as string | undefined;
       const session = sessionID ? state.sessions.get(sessionID) : undefined;
 
       if (session) {
@@ -558,7 +585,8 @@ export const OpenCarly: Plugin = async ({ directory, client }) => {
             discovery.configPath, 
             session, 
             state.config.context.stats.trackDuration,
-            currentDelta
+            currentDelta,
+            state.cumulativeStats
           );
         } catch {
           // Non-critical

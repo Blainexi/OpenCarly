@@ -153,21 +153,35 @@ export async function loadConfig(configPath: string): Promise<CarlyConfig> {
   return { manifest, commands, context, configPath, warnings };
 }
 
+const domainFileCache = new Map<string, { mtimeMs: number; rules: string[] }>();
+
 /**
  * Parse a domain rule file (.md).
  *
  * Extracts rules from bullet points (lines starting with "- ") and free text.
  * Ignores headings (#) and empty lines.
+ * Uses a memory cache based on file modification time.
  */
 export async function parseDomainFile(filePath: string): Promise<string[]> {
   let content: string;
   try {
+    const stats = await fs.promises.stat(filePath);
+    const cached = domainFileCache.get(filePath);
+    if (cached && cached.mtimeMs === stats.mtimeMs) {
+      return cached.rules;
+    }
     content = await fs.promises.readFile(filePath, "utf-8");
     content = content.replace(/\r\n/g, "\n");
+    
+    const rules = parseDomainFileContent(content);
+    domainFileCache.set(filePath, { mtimeMs: stats.mtimeMs, rules });
+    return rules;
   } catch {
     return [];
   }
+}
 
+function parseDomainFileContent(content: string): string[] {
   const lines = content.split("\n");
   const rules: string[] = [];
   let currentRule = "";
@@ -181,7 +195,8 @@ export async function parseDomainFile(filePath: string): Promise<string[]> {
     }
 
     // Ignore headings but break the current rule
-    if (!inCodeBlock && trimmed.startsWith("#")) {
+    // Only match headings (starts with # followed by space, or ##+) to avoid breaking on `#comment` inside rules
+    if (!inCodeBlock && /^#+(\s|$)/.test(trimmed)) {
       if (currentRule) {
         rules.push(currentRule.trim());
         currentRule = "";
