@@ -39,12 +39,14 @@ export interface CarlyConfig {
  * Read and parse a JSON file. Returns null if file doesn't exist.
  * Throws on invalid JSON.
  */
-function readJsonFile(filePath: string): unknown {
-  if (!fs.existsSync(filePath)) {
-    return null;
+async function readJsonFile(filePath: string): Promise<unknown> {
+  try {
+    const raw = await fs.promises.readFile(filePath, "utf-8");
+    return JSON.parse(raw);
+  } catch (err: any) {
+    if (err.code === 'ENOENT') return null;
+    throw err;
   }
-  const raw = fs.readFileSync(filePath, "utf-8");
-  return JSON.parse(raw);
 }
 
 /**
@@ -64,12 +66,12 @@ function formatZodErrors(error: ZodError): string {
  * Validates against Zod schemas. Collects warnings for non-fatal issues.
  * Throws only when manifest.json is missing entirely.
  */
-export function loadConfig(configPath: string): CarlyConfig {
+export async function loadConfig(configPath: string): Promise<CarlyConfig> {
   const warnings: string[] = [];
 
   // manifest.json (required)
   const manifestPath = path.join(configPath, "manifest.json");
-  const manifestRaw = readJsonFile(manifestPath);
+  const manifestRaw = await readJsonFile(manifestPath);
   if (manifestRaw === null) {
     throw new Error(`OpenCarly: manifest.json not found at ${manifestPath}`);
   }
@@ -89,7 +91,9 @@ export function loadConfig(configPath: string): CarlyConfig {
   // Validate domain file references exist
   for (const [name, domain] of Object.entries(manifest.domains)) {
     const domainFilePath = path.join(configPath, domain.file);
-    if (!fs.existsSync(domainFilePath)) {
+    try {
+      await fs.promises.access(domainFilePath);
+    } catch {
       warnings.push(
         `Domain "${name}" references file "${domain.file}" which does not exist`
       );
@@ -99,7 +103,7 @@ export function loadConfig(configPath: string): CarlyConfig {
   // commands.json (optional - defaults to empty)
   const commandsPath = path.join(configPath, "commands.json");
   let commands: CommandsFile = {};
-  const commandsRaw = readJsonFile(commandsPath);
+  const commandsRaw = await readJsonFile(commandsPath);
 
   if (commandsRaw !== null) {
     try {
@@ -118,7 +122,7 @@ export function loadConfig(configPath: string): CarlyConfig {
   // context.json (optional - defaults to empty with default thresholds)
   const contextPath = path.join(configPath, "context.json");
   let context: ContextFile = ContextFileSchema.parse({});
-  const contextRaw = readJsonFile(contextPath);
+  const contextRaw = await readJsonFile(contextPath);
 
   if (contextRaw !== null) {
     try {
@@ -155,13 +159,16 @@ export function loadConfig(configPath: string): CarlyConfig {
  * Extracts rules from bullet points (lines starting with "- ").
  * Ignores headings (#), empty lines, and other markdown.
  */
-export function parseDomainFile(filePath: string): string[] {
-  if (!fs.existsSync(filePath)) {
+export async function parseDomainFile(filePath: string): Promise<string[]> {
+  let content: string;
+  try {
+    content = await fs.promises.readFile(filePath, "utf-8");
+    content = content.replace(/\r\n/g, "\n");
+  } catch {
     return [];
   }
 
-  const content = fs.readFileSync(filePath, "utf-8");
-  const lines = content.replace(/\r\n/g, "\n").split("\n");
+  const lines = content.split("\n");
   const rules: string[] = [];
   let currentRule = "";
   let inCodeBlock = false;
@@ -210,6 +217,6 @@ export function parseDomainFile(filePath: string): string[] {
  * Reload config from disk. Used when config might have changed
  * (e.g., user edited manifest.json via /carly command).
  */
-export function reloadConfig(configPath: string): CarlyConfig {
-  return loadConfig(configPath);
+export async function reloadConfig(configPath: string): Promise<CarlyConfig> {
+  return await loadConfig(configPath);
 }

@@ -20,7 +20,12 @@ import {
 async function atomicWrite(filePath: string, data: string): Promise<void> {
   const tmpPath = `${filePath}.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`;
   await fs.promises.writeFile(tmpPath, data, "utf-8");
-  await fs.promises.rename(tmpPath, filePath);
+  try {
+    await fs.promises.rename(tmpPath, filePath);
+  } catch (err) {
+    try { await fs.promises.unlink(tmpPath); } catch {}
+    throw err;
+  }
 }
 
 class Mutex {
@@ -48,46 +53,36 @@ const STALE_SESSION_HOURS = 720;
 /**
  * Get the sessions directory path, creating it if needed.
  */
-function getSessionsDir(configPath: string): string {
+async function getSessionsDir(configPath: string): Promise<string> {
   const dir = path.join(configPath, SESSIONS_DIR);
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
+  await fs.promises.mkdir(dir, { recursive: true });
   return dir;
 }
 
 /**
  * Get path to a specific session file.
  */
-function getSessionFilePath(configPath: string, sessionId: string): string {
+async function getSessionFilePath(configPath: string, sessionId: string): Promise<string> {
   // Sanitize the sessionId to prevent path traversal
   const safeId = sessionId.replace(/[^a-zA-Z0-9_-]/g, "");
-  return path.join(getSessionsDir(configPath), `${safeId}.json`);
+  const dir = await getSessionsDir(configPath);
+  return path.join(dir, `${safeId}.json`);
 }
 
 /**
  * Load an existing session from disk. Returns null if not found.
  */
-export function loadSession(
+export async function loadSession(
   configPath: string,
   sessionId: string
-): SessionConfig | null {
-  const filePath = getSessionFilePath(configPath, sessionId);
-
-  if (!fs.existsSync(filePath)) {
-    return null;
-  }
+): Promise<SessionConfig | null> {
+  const filePath = await getSessionFilePath(configPath, sessionId);
 
   try {
-    const raw = fs.readFileSync(filePath, "utf-8");
+    const raw = await fs.promises.readFile(filePath, "utf-8");
     return SessionConfigSchema.parse(JSON.parse(raw));
   } catch {
-    // Corrupted session file - remove it and return null
-    try {
-      fs.unlinkSync(filePath);
-    } catch {
-      // ignore cleanup errors
-    }
+    // Return null on read error (ENOENT, EBUSY) or parse error. Do not delete file.
     return null;
   }
 }
@@ -117,12 +112,12 @@ export function createSession(
 /**
  * Get or create a session. Returns the session and whether it was newly created.
  */
-export function getOrCreateSession(
+export async function getOrCreateSession(
   configPath: string,
   sessionId: string,
   cwd: string
-): { session: SessionConfig; isNew: boolean } {
-  const existing = loadSession(configPath, sessionId);
+): Promise<{ session: SessionConfig; isNew: boolean }> {
+  const existing = await loadSession(configPath, sessionId);
 
   if (existing) {
     return { session: existing, isNew: false };
@@ -141,7 +136,7 @@ export async function saveSession(
 ): Promise<void> {
   const release = await sessionMutex.acquire();
   try {
-    const filePath = getSessionFilePath(configPath, session.id);
+    const filePath = await getSessionFilePath(configPath, session.id);
     await atomicWrite(filePath, JSON.stringify(session, null, 2));
   } finally {
     release();
@@ -212,14 +207,16 @@ export function applySessionOverrides(
 export async function cleanStaleSessions(configPath: string): Promise<number> {
   const sessionsDir = path.join(configPath, SESSIONS_DIR);
 
-  if (!fs.existsSync(sessionsDir)) {
+  let files: string[];
+  try {
+    files = await fs.promises.readdir(sessionsDir);
+  } catch {
     return 0;
   }
 
   const cutoff = Date.now() - STALE_SESSION_HOURS * 60 * 60 * 1000;
   let cleaned = 0;
 
-  const files = await fs.promises.readdir(sessionsDir);
   for (const file of files) {
     if (!file.endsWith(".json")) continue;
 
@@ -229,7 +226,7 @@ export async function cleanStaleSessions(configPath: string): Promise<number> {
       const session = JSON.parse(raw);
       const lastActivity = new Date(session.lastActivity).getTime();
 
-      if (lastActivity < cutoff) {
+      if (isNaN(lastActivity) || lastActivity < cutoff) {
         await fs.promises.rm(filePath, { recursive: true, force: true });
         cleaned++;
       }
@@ -261,12 +258,9 @@ function getStatsFilePath(configPath: string): string {
 /**
  * Read JSON file, returning null if doesn't exist or invalid.
  */
-function readJsonFileSafe(filePath: string): unknown {
-  if (!fs.existsSync(filePath)) {
-    return null;
-  }
+async function readJsonFileSafeAsync(filePath: string): Promise<unknown> {
   try {
-    const raw = fs.readFileSync(filePath, "utf-8");
+    const raw = await fs.promises.readFile(filePath, "utf-8");
     return JSON.parse(raw);
   } catch {
     return null;
@@ -286,17 +280,18 @@ interface SessionFile {
   name: string;
 }
 
-function getSessionFiles(sessionsDir: string): SessionFile[] {
-  if (!fs.existsSync(sessionsDir)) {
+async function getSessionFilesAsync(sessionsDir: string): Promise<SessionFile[]> {
+  try {
+    const files = await fs.promises.readdir(sessionsDir);
+    return files
+      .filter((f) => f.endsWith(".json"))
+      .map((name) => ({
+        path: path.join(sessionsDir, name),
+        name,
+      }));
+  } catch {
     return [];
   }
-  const files = fs.readdirSync(sessionsDir);
-  return files
-    .filter((f) => f.endsWith(".json"))
-    .map((name) => ({
-      path: path.join(sessionsDir, name),
-      name,
-    }));
 }
 
 function calculateTokensSaved(tokenStats: TokenStats): number {
@@ -333,12 +328,12 @@ function calculateCumulativeStats(
  * Load cumulative stats from stats.json and session files.
  * Returns defaults if no data exists.
  */
-export function loadCumulativeStats(
+export async function loadCumulativeStats(
   configPath: string,
   trackDuration: "all" | "week" | "month" = "all"
-): CumulativeStats {
+): Promise<CumulativeStats> {
   const statsPath = getStatsFilePath(configPath);
-  const raw = readJsonFileSafe(statsPath);
+  const raw = await readJsonFileSafeAsync(statsPath);
 
   let statsJson: CumulativeStats;
   if (raw) {
@@ -380,8 +375,8 @@ export function loadCumulativeStats(
   }
 
   // Load sessions from session files
-  const sessionsDir = getSessionsDir(configPath);
-  const sessionFiles = getSessionFiles(sessionsDir);
+  const sessionsDir = path.join(configPath, SESSIONS_DIR);
+  const sessionFiles = await getSessionFilesAsync(sessionsDir);
   const sessionMap = new Map<string, CumulativeStats["sessions"][0]>();
 
   // Add sessions from stats.json first
@@ -391,7 +386,7 @@ export function loadCumulativeStats(
 
   // Merge sessions from session files
   for (const sessionFile of sessionFiles) {
-    const sessionData = readJsonFileSafe(sessionFile.path) as
+    const sessionData = await readJsonFileSafeAsync(sessionFile.path) as
       | SessionFileData
       | null;
     if (sessionData && sessionData.id && sessionData.tokenStats) {
@@ -475,15 +470,13 @@ export async function clearAllStats(configPath: string): Promise<void> {
   const release = await sessionMutex.acquire();
   try {
     const statsPath = getStatsFilePath(configPath);
-    if (fs.existsSync(statsPath)) {
-      try {
-        await fs.promises.unlink(statsPath);
-      } catch {}
-    }
+    try {
+      await fs.promises.unlink(statsPath);
+    } catch {}
 
-    const sessionsDir = getSessionsDir(configPath);
-    if (fs.existsSync(sessionsDir)) {
-      const files = fs.readdirSync(sessionsDir);
+    const sessionsDir = path.join(configPath, SESSIONS_DIR);
+    try {
+      const files = await fs.promises.readdir(sessionsDir);
       for (const file of files) {
         if (file.endsWith(".json")) {
           try {
@@ -491,7 +484,7 @@ export async function clearAllStats(configPath: string): Promise<void> {
           } catch {}
         }
       }
-    }
+    } catch {}
   } finally {
     release();
   }
@@ -518,7 +511,7 @@ export async function updateCumulativeStats(
     const statsPath = getStatsFilePath(configPath);
     let stats: CumulativeStats;
     try {
-      const raw = readJsonFileSafe(statsPath);
+      const raw = await readJsonFileSafeAsync(statsPath);
       stats = raw ? CumulativeStatsSchema.parse(raw) : { version: 1, cumulative: { tokensSkippedBySelection: 0, tokensInjected: 0, tokensTrimmedFromHistory: 0, tokensTrimmedCarlyBlocks: 0, totalTokensSaved: 0 }, sessions: [] };
     } catch {
       stats = { version: 1, cumulative: { tokensSkippedBySelection: 0, tokensInjected: 0, tokensTrimmedFromHistory: 0, tokensTrimmedCarlyBlocks: 0, totalTokensSaved: 0 }, sessions: [] };
@@ -620,7 +613,7 @@ export async function updateCumulativeStats(
       stats.sessions = stats.sessions.slice(0, 100);
     }
     
-    await saveCumulativeStats(configPath, stats);
+    await atomicWrite(statsPath, JSON.stringify(stats, null, 2));
     return stats;
   } finally {
     release();

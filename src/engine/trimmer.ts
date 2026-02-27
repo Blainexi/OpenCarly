@@ -334,8 +334,36 @@ export function trimMessageHistory(
     return { stats, messages: inputMessages };
   }
 
-  // Deep clone to prevent mutating the upstream framework's cached objects
-  const messages: TransformMessage[] = JSON.parse(JSON.stringify(inputMessages));
+  // Safely clone only the parts of the message tree we intend to mutate
+  const messages: TransformMessage[] = inputMessages.map((msg) => {
+    // Clone the message wrapper
+    const newMsg = { ...msg };
+    // Clone the parts array
+    newMsg.parts = msg.parts.map((part) => {
+      if (part.type === "text") {
+        // Text parts will have their .text modified
+        return { ...part };
+      }
+      if (part.type === "tool") {
+        const toolPart = part as ToolPart;
+        // Tool parts will have their .state modified
+        const newToolPart: ToolPart = { ...toolPart };
+        newToolPart.state = { ...toolPart.state };
+        
+        // Only completed/error states have output/error properties we might change
+        if (newToolPart.state.status === "completed" || newToolPart.state.status === "error") {
+            const anyState = newToolPart.state as any;
+            if (anyState.time) {
+              anyState.time = { ...anyState.time };
+            }
+        }
+        return newToolPart;
+      }
+      // Other parts are untouched
+      return part;
+    });
+    return newMsg;
+  });
 
   const context = new TrimContext(messages);
   const totalMessages = messages.length;

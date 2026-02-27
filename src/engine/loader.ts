@@ -98,13 +98,13 @@ export interface LoadedRules {
 /**
  * Load rules from a single domain's .md file.
  */
-function loadDomainRules(
+async function loadDomainRules(
   _domainName: string,
   domain: DomainConfig,
   configPath: string
-): string[] {
+): Promise<string[]> {
   const filePath = path.join(configPath, domain.file);
-  return parseDomainFile(filePath);
+  return await parseDomainFile(filePath);
 }
 
 // ---------------------------------------------------------------------------
@@ -116,15 +116,19 @@ function loadDomainRules(
  * This is what you'd get if you put everything in AGENTS.md.
  * Returns estimated tokens per prompt.
  */
-export function calculateBaseline(config: CarlyConfig): number {
+export async function calculateBaseline(config: CarlyConfig): Promise<number> {
   const { manifest, commands, configPath } = config;
   let totalRuleText = 0;
 
   // All domain rules
+  const tasks = [];
   for (const [, domain] of Object.entries(manifest.domains)) {
     if (domain.state === "inactive") continue;
     const filePath = path.join(configPath, domain.file);
-    const rules = parseDomainFile(filePath);
+    tasks.push(parseDomainFile(filePath));
+  }
+  const results = await Promise.all(tasks);
+  for (const rules of results) {
     for (const rule of rules) {
       totalRuleText += rule.length;
     }
@@ -157,12 +161,12 @@ export function calculateBaseline(config: CarlyConfig): number {
 /**
  * Load all rules based on match results, config, and current bracket.
  */
-export function loadRules(
+export async function loadRules(
   matchResult: MatchResult,
   config: CarlyConfig,
   bracket: BracketResult,
   promptCount: number
-): LoadedRules {
+): Promise<LoadedRules> {
   const { manifest, commands, configPath } = config;
 
   const loaded: LoadedRules = {
@@ -187,28 +191,31 @@ export function loadRules(
 
   // Load always-on domain rules
   const injectedDomains = new Set<string>();
+  const alwaysOnTasks = [];
 
   for (const domainName of matchResult.alwaysOn) {
     injectedDomains.add(domainName);
     const domain = manifest.domains[domainName];
     if (domain) {
-      const rules = loadDomainRules(domainName, domain, configPath);
-      if (rules.length > 0) {
-        loaded.alwaysOn[domainName] = rules;
-      }
+      alwaysOnTasks.push(loadDomainRules(domainName, domain, configPath).then(rules => ({ domainName, rules })));
+    }
+  }
+
+  const alwaysOnResults = await Promise.all(alwaysOnTasks);
+  for (const { domainName, rules } of alwaysOnResults) {
+    if (rules.length > 0) {
+      loaded.alwaysOn[domainName] = rules;
     }
   }
 
   // Load keyword-matched domain rules
+  const matchedTasks = [];
   for (const domainName of Object.keys(matchResult.matched)) {
     if (injectedDomains.has(domainName)) continue;
     injectedDomains.add(domainName);
     const domain = manifest.domains[domainName];
     if (domain) {
-      const rules = loadDomainRules(domainName, domain, configPath);
-      if (rules.length > 0) {
-        loaded.matched[domainName] = rules;
-      }
+      matchedTasks.push(loadDomainRules(domainName, domain, configPath).then(rules => ({ domainName, rules })));
     }
   }
   
@@ -218,11 +225,14 @@ export function loadRules(
     injectedDomains.add(domainName);
     const domain = manifest.domains[domainName];
     if (domain) {
-      const rules = loadDomainRules(domainName, domain, configPath);
-      if (rules.length > 0) {
-        // We put them in loaded.matched to be injected alongside keyword-matched rules
-        loaded.matched[domainName] = rules;
-      }
+      matchedTasks.push(loadDomainRules(domainName, domain, configPath).then(rules => ({ domainName, rules })));
+    }
+  }
+
+  const matchedResults = await Promise.all(matchedTasks);
+  for (const { domainName, rules } of matchedResults) {
+    if (rules.length > 0) {
+      loaded.matched[domainName] = rules;
     }
   }
 

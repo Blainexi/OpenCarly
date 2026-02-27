@@ -127,7 +127,7 @@ function estimateTokens(text: string): number {
 }
 
 async function generateStatsReport(configPath: string, activeSessionId?: string, activeModel?: string | null): Promise<string> {
-  const stats = loadCumulativeStats(configPath);
+  const stats = await loadCumulativeStats(configPath);
   
   let currentSessionSummary = activeSessionId 
     ? stats.sessions.find(s => s.sessionId === activeSessionId)
@@ -251,7 +251,7 @@ export const OpenCarly: Plugin = async ({ directory, client }) => {
   // Load config
   let config: CarlyConfig;
   try {
-    config = loadConfig(discovery.configPath);
+    config = await loadConfig(discovery.configPath);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     await log("error", `Config loading failed: ${message}`, {
@@ -267,7 +267,7 @@ export const OpenCarly: Plugin = async ({ directory, client }) => {
   }
 
   // Calculate baseline (all rules loaded every prompt)
-  const baselineTokensPerPrompt = calculateBaseline(config);
+  const baselineTokensPerPrompt = await calculateBaseline(config);
 
   // Log startup summary
   const domainNames = Object.keys(config.manifest.domains);
@@ -284,7 +284,7 @@ export const OpenCarly: Plugin = async ({ directory, client }) => {
   });
 
   // Initialize state
-  const cumulativeStats = loadCumulativeStats(discovery.configPath, config.context.stats.trackDuration);
+  const cumulativeStats = await loadCumulativeStats(discovery.configPath, config.context.stats.trackDuration);
 
   const state: PluginState = {
     config,
@@ -329,7 +329,7 @@ export const OpenCarly: Plugin = async ({ directory, client }) => {
       const promptText = extractPromptText(promptParts);
 
       // Get or create session
-      const { session, isNew } = getOrCreateSession(
+      const { session, isNew } = await getOrCreateSession(
         discovery.configPath,
         sessionID,
         directory
@@ -341,6 +341,15 @@ export const OpenCarly: Plugin = async ({ directory, client }) => {
       }
 
       if (isNew || !state.sessions.has(sessionID)) {
+        state.sessions.set(sessionID, session);
+        // Simple LRU eviction to prevent memory leaks
+        if (state.sessions.size > 50) {
+          const oldestKey = state.sessions.keys().next().value;
+          if (oldestKey) state.sessions.delete(oldestKey);
+        }
+      } else {
+        // Move to end of Map to mark as recently used
+        state.sessions.delete(sessionID);
         state.sessions.set(sessionID, session);
       }
 
@@ -423,7 +432,7 @@ export const OpenCarly: Plugin = async ({ directory, client }) => {
       };
 
       // Load rules
-      const loaded = loadRules(matchResult, effectiveConfig, bracket, promptCount);
+      const loaded = await loadRules(matchResult, effectiveConfig, bracket, promptCount);
 
       // Override devmode from effective manifest
       loaded.devmode = effectiveManifest.devmode;
