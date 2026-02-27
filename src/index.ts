@@ -283,6 +283,16 @@ export const OpenCarly: Plugin = async ({ directory, client }) => {
     baselineTokensPerPrompt,
   });
 
+  // Clean stale sessions on startup FIRST
+  try {
+    const cleaned = await cleanStaleSessions(discovery.configPath);
+    if (cleaned > 0) {
+      await log("debug", `Cleaned ${cleaned} stale session(s)`);
+    }
+  } catch {
+    // Non-critical
+  }
+
   // Initialize state
   const cumulativeStats = await loadCumulativeStats(discovery.configPath, config.context.stats.trackDuration);
 
@@ -294,16 +304,6 @@ export const OpenCarly: Plugin = async ({ directory, client }) => {
     baselineTokensPerPrompt,
     cumulativeStats,
   };
-
-  // Clean stale sessions on startup
-  try {
-    const cleaned = await cleanStaleSessions(discovery.configPath);
-    if (cleaned > 0) {
-      await log("debug", `Cleaned ${cleaned} stale session(s)`);
-    }
-  } catch {
-    // Non-critical
-  }
 
   return {
     // -----------------------------------------------------------------

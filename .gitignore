@@ -7,3 +7,4 @@ bun.lockb
 .opencarly/sessions/
 .gemini/
 .opencarly/debug.log 
+tests/
